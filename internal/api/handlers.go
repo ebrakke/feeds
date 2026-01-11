@@ -3,12 +3,14 @@ package api
 import (
 	"encoding/json"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/db"
@@ -28,6 +30,7 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 	funcMap := template.FuncMap{
 		"div": func(a, b int) int { return a / b },
 		"mod": func(a, b int) int { return a % b },
+		"mul": func(a, b int) int { return a * b },
 	}
 
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
@@ -48,6 +51,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /import", s.handleImportPage)
 	mux.HandleFunc("POST /import", s.handleImport)
+	mux.HandleFunc("POST /import/url", s.handleImportURL)
 	mux.HandleFunc("POST /import/organize", s.handleOrganize)
 	mux.HandleFunc("POST /import/confirm", s.handleConfirmOrganize)
 	mux.HandleFunc("GET /feeds/{id}", s.handleFeedPage)
@@ -61,6 +65,12 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /download/{id}", s.handleDownload)
 	mux.HandleFunc("GET /watch/{id}", s.handleWatchPage)
 	mux.HandleFunc("GET /all", s.handleAllRecent)
+	mux.HandleFunc("GET /history", s.handleHistory)
+	mux.HandleFunc("POST /watch/{id}/progress", s.handleUpdateWatchProgress)
+	mux.HandleFunc("POST /watch/{id}/mark-watched", s.handleMarkWatched)
+	mux.HandleFunc("POST /watch/{id}/mark-unwatched", s.handleMarkUnwatched)
+	mux.HandleFunc("POST /open", s.handleOpenVideo)
+	mux.HandleFunc("POST /watch/{id}/subscribe", s.handleSubscribeFromWatch)
 }
 
 // Page handlers
@@ -86,9 +96,17 @@ func (s *Server) handleAllRecent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get watch progress for all videos
+	videoIDs := make([]string, len(videos))
+	for i, v := range videos {
+		videoIDs[i] = v.ID
+	}
+	progressMap, _ := s.db.GetWatchProgressMap(videoIDs)
+
 	data := map[string]any{
-		"Title":  "Everything",
-		"Videos": videos,
+		"Title":       "Everything",
+		"Videos":      videos,
+		"ProgressMap": progressMap,
 	}
 	s.templates.ExecuteTemplate(w, "all", data)
 }
@@ -165,6 +183,111 @@ func (s *Server) renderImportError(w http.ResponseWriter, errMsg string) {
 	s.templates.ExecuteTemplate(w, "import", data)
 }
 
+// handleImportURL imports a feed from a remote URL
+func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.renderImportError(w, "Failed to parse form")
+		return
+	}
+
+	feedURL := strings.TrimSpace(r.FormValue("url"))
+	if feedURL == "" {
+		s.renderImportError(w, "URL is required")
+		return
+	}
+
+	// Fetch the URL with timeout and size limit
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(feedURL)
+	if err != nil {
+		s.renderImportError(w, "Failed to fetch URL: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		s.renderImportError(w, "URL returned status: "+resp.Status)
+		return
+	}
+
+	// Limit read to 5MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+	if err != nil {
+		s.renderImportError(w, "Failed to read response: "+err.Error())
+		return
+	}
+
+	// Try to parse as Feeds format first
+	var feedExport models.FeedExport
+	if err := json.Unmarshal(body, &feedExport); err == nil && len(feedExport.Channels) > 0 {
+		// Feeds format detected
+		tags := ""
+		if len(feedExport.Tags) > 0 {
+			tags = strings.Join(feedExport.Tags, ", ")
+		}
+
+		feed, err := s.db.CreateFeedWithMetadata(feedExport.Name, feedExport.Description, feedExport.Author, tags)
+		if err != nil {
+			s.renderImportError(w, "Failed to create feed: "+err.Error())
+			return
+		}
+
+		for _, ch := range feedExport.Channels {
+			if _, err := s.db.AddChannel(feed.ID, ch.URL, ch.Name); err != nil {
+				log.Printf("Failed to add channel %s: %v", ch.URL, err)
+			}
+		}
+
+		log.Printf("Imported feed '%s' from URL with %d channels (Feeds format)", feed.Name, len(feedExport.Channels))
+		http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feed.ID, 10), http.StatusSeeOther)
+		return
+	}
+
+	// Try NewPipe format
+	var newPipeExport models.NewPipeExport
+	if err := json.Unmarshal(body, &newPipeExport); err == nil && len(newPipeExport.Subscriptions) > 0 {
+		// Filter to YouTube only (service_id 0)
+		var subs []models.NewPipeSubscription
+		for _, sub := range newPipeExport.Subscriptions {
+			if sub.ServiceID == 0 {
+				subs = append(subs, sub)
+			}
+		}
+
+		if len(subs) == 0 {
+			s.renderImportError(w, "No YouTube subscriptions found in file")
+			return
+		}
+
+		// Use filename from URL or default name
+		feedName := "Imported Feed"
+		if parts := strings.Split(feedURL, "/"); len(parts) > 0 {
+			lastPart := parts[len(parts)-1]
+			if strings.HasSuffix(lastPart, ".json") {
+				feedName = strings.TrimSuffix(lastPart, ".json")
+			}
+		}
+
+		feed, err := s.db.CreateFeed(feedName)
+		if err != nil {
+			s.renderImportError(w, "Failed to create feed: "+err.Error())
+			return
+		}
+
+		for _, sub := range subs {
+			if _, err := s.db.AddChannel(feed.ID, sub.URL, sub.Name); err != nil {
+				log.Printf("Failed to add channel %s: %v", sub.URL, err)
+			}
+		}
+
+		log.Printf("Imported feed '%s' from URL with %d channels (NewPipe format)", feed.Name, len(subs))
+		http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feed.ID, 10), http.StatusSeeOther)
+		return
+	}
+
+	s.renderImportError(w, "Unrecognized format - expected Feeds or NewPipe JSON")
+}
+
 func (s *Server) handleFeedPage(w http.ResponseWriter, r *http.Request) {
 	feedID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -195,6 +318,13 @@ func (s *Server) handleFeedPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get watch progress for all videos
+	videoIDs := make([]string, len(videos))
+	for i, v := range videos {
+		videoIDs[i] = v.ID
+	}
+	progressMap, _ := s.db.GetWatchProgressMap(videoIDs)
+
 	// Get all feeds for the move dropdown
 	allFeeds, err := s.db.GetFeeds()
 	if err != nil {
@@ -206,13 +336,14 @@ func (s *Server) handleFeedPage(w http.ResponseWriter, r *http.Request) {
 	errorMsg := r.URL.Query().Get("error")
 
 	data := map[string]any{
-		"Title":    feed.Name,
-		"Feed":     feed,
-		"Tab":      tab,
-		"Channels": channels,
-		"Videos":   videos,
-		"AllFeeds": allFeeds,
-		"Error":    errorMsg,
+		"Title":       feed.Name,
+		"Feed":        feed,
+		"Tab":         tab,
+		"Channels":    channels,
+		"Videos":      videos,
+		"ProgressMap": progressMap,
+		"AllFeeds":    allFeeds,
+		"Error":       errorMsg,
 	}
 	s.templates.ExecuteTemplate(w, "feed", data)
 }
@@ -307,10 +438,44 @@ func (s *Server) handleWatchPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get watch progress for resume functionality
+	var startTime int
+	if wp, err := s.db.GetWatchProgress(videoID); err == nil {
+		// Only resume if not near the end (within 30 seconds)
+		if wp.DurationSeconds > 0 && wp.ProgressSeconds < wp.DurationSeconds-30 {
+			startTime = wp.ProgressSeconds
+		}
+	}
+
+	// Get all feeds for subscribe dropdown
+	feeds, _ := s.db.GetFeeds()
+
+	// Resolve channel URL to canonical form for subscription
+	channelURL := ""
+	if info.ChannelURL != "" {
+		if channelInfo, err := youtube.ResolveChannelURL(info.ChannelURL); err == nil {
+			channelURL = channelInfo.URL
+		}
+	}
+
+	// Check if already subscribed
+	var existingChannel *models.Channel
+	if channelURL != "" {
+		existingChannel, _ = s.db.GetChannelByURL(channelURL)
+	}
+
+	// Check query params for subscription status
+	subscribed := r.URL.Query().Get("subscribed")
+
 	data := map[string]any{
-		"Title":     info.Title,
-		"Video":     info,
-		"StreamURL": streamURL,
+		"Title":           info.Title,
+		"Video":           info,
+		"StreamURL":       streamURL,
+		"StartTime":       startTime,
+		"Feeds":           feeds,
+		"ChannelURL":      channelURL,
+		"ExistingChannel": existingChannel,
+		"Subscribed":      subscribed,
 	}
 	s.templates.ExecuteTemplate(w, "watch", data)
 }
@@ -364,11 +529,19 @@ func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get watch progress for all videos
+	videoIDs := make([]string, len(videos))
+	for i, v := range videos {
+		videoIDs[i] = v.ID
+	}
+	progressMap, _ := s.db.GetWatchProgressMap(videoIDs)
+
 	data := map[string]any{
-		"Title":   channel.Name,
-		"Channel": channel,
-		"Feed":    feed,
-		"Videos":  videos,
+		"Title":       channel.Name,
+		"Channel":     channel,
+		"Feed":        feed,
+		"Videos":      videos,
+		"ProgressMap": progressMap,
 	}
 	s.templates.ExecuteTemplate(w, "channel", data)
 }
@@ -651,11 +824,18 @@ func (s *Server) handleConfirmOrganize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// handleExportFeed exports a feed as NewPipe-compatible JSON
+// handleExportFeed exports a feed as JSON
+// Use ?format=newpipe for NewPipe-compatible format, otherwise uses Feeds format
 func (s *Server) handleExportFeed(w http.ResponseWriter, r *http.Request) {
 	feedID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	feed, err := s.db.GetFeed(feedID)
+	if err != nil {
+		http.Error(w, "Feed not found", http.StatusNotFound)
 		return
 	}
 
@@ -665,20 +845,191 @@ func (s *Server) handleExportFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build NewPipe-compatible export
-	export := models.NewPipeExport{
-		Subscriptions: make([]models.NewPipeSubscription, 0, len(channels)),
+	format := r.URL.Query().Get("format")
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if format == "newpipe" {
+		// Build NewPipe-compatible export
+		export := models.NewPipeExport{
+			Subscriptions: make([]models.NewPipeSubscription, 0, len(channels)),
+		}
+		for _, ch := range channels {
+			export.Subscriptions = append(export.Subscriptions, models.NewPipeSubscription{
+				ServiceID: 0,
+				URL:       ch.URL,
+				Name:      ch.Name,
+			})
+		}
+		w.Header().Set("Content-Disposition", "attachment; filename=subscriptions.json")
+		json.NewEncoder(w).Encode(export)
+		return
 	}
 
+	// Default: Feeds format
+	var tags []string
+	if feed.Tags != "" {
+		tags = strings.Split(feed.Tags, ",")
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
+		}
+	}
+
+	export := models.FeedExport{
+		Version:     1,
+		Name:        feed.Name,
+		Description: feed.Description,
+		Author:      feed.Author,
+		Tags:        tags,
+		Updated:     feed.UpdatedAt,
+		Channels:    make([]models.ExportChannel, 0, len(channels)),
+	}
 	for _, ch := range channels {
-		export.Subscriptions = append(export.Subscriptions, models.NewPipeSubscription{
-			ServiceID: 0,
-			URL:       ch.URL,
-			Name:      ch.Name,
+		export.Channels = append(export.Channels, models.ExportChannel{
+			URL:  ch.URL,
+			Name: ch.Name,
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=subscriptions.json")
+	// Use feed name as filename, sanitized
+	filename := strings.ReplaceAll(feed.Name, " ", "-") + ".json"
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	json.NewEncoder(w).Encode(export)
+}
+
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	videos, err := s.db.GetWatchHistory(100)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get watch progress for all videos
+	videoIDs := make([]string, len(videos))
+	for i, v := range videos {
+		videoIDs[i] = v.ID
+	}
+	progressMap, _ := s.db.GetWatchProgressMap(videoIDs)
+
+	data := map[string]any{
+		"Title":       "History",
+		"Videos":      videos,
+		"ProgressMap": progressMap,
+	}
+	s.templates.ExecuteTemplate(w, "history", data)
+}
+
+func (s *Server) handleUpdateWatchProgress(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	var req struct {
+		Progress int `json:"progress"`
+		Duration int `json:"duration"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.UpdateWatchProgress(videoID, req.Progress, req.Duration); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleMarkWatched(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	// Mark as 100% watched (use a placeholder duration if we don't know the real one)
+	if err := s.db.MarkAsWatched(videoID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleMarkUnwatched(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	if err := s.db.DeleteWatchProgress(videoID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleOpenVideo(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	url := strings.TrimSpace(r.FormValue("url"))
+	if url == "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	videoID := youtube.ExtractVideoID(url)
+	if videoID == "" {
+		http.Redirect(w, r, "/?error=invalid_url", http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/watch/"+videoID, http.StatusSeeOther)
+}
+
+func (s *Server) handleSubscribeFromWatch(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	feedID, err := strconv.ParseInt(r.FormValue("feed_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	channelURL := r.FormValue("channel_url")
+	channelName := r.FormValue("channel_name")
+
+	// Check if already subscribed
+	existing, err := s.db.GetChannelByURL(channelURL)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if existing != nil {
+		// Already subscribed, just redirect back
+		http.Redirect(w, r, "/watch/"+videoID+"?subscribed=already", http.StatusSeeOther)
+		return
+	}
+
+	// Handle "Uncategorized" feed (feed_id=0)
+	if feedID == 0 {
+		feed, err := s.db.GetOrCreateFeed("Uncategorized")
+		if err != nil {
+			log.Printf("Failed to create Uncategorized feed: %v", err)
+			http.Error(w, "Failed to create feed", http.StatusInternalServerError)
+			return
+		}
+		feedID = feed.ID
+	}
+
+	// Add the channel
+	if _, err := s.db.AddChannel(feedID, channelURL, channelName); err != nil {
+		log.Printf("Failed to add channel: %v", err)
+		http.Error(w, "Failed to subscribe", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Subscribed to %s (%s) in feed %d from watch page", channelName, channelURL, feedID)
+	http.Redirect(w, r, "/watch/"+videoID+"?subscribed=true", http.StatusSeeOther)
 }

@@ -2,11 +2,26 @@
 {{template "header" .}}
 
 <div class="max-w-md mx-auto">
-    <h2 class="text-xl font-bold mb-6">Import NewPipe Subscriptions</h2>
+    <h2 class="text-xl font-bold mb-6">Import Feed</h2>
 
     {{if .Error}}
     <div class="mb-4 p-3 bg-red-900 text-red-200 rounded">{{.Error}}</div>
     {{end}}
+
+    <!-- Import from URL -->
+    <form method="POST" action="/import/url" class="mb-6">
+        <label class="block text-sm font-medium mb-2">Import from URL</label>
+        <div class="flex gap-2">
+            <input type="url" name="url" required placeholder="https://example.com/feed.json"
+                   class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-3 focus:outline-none focus:border-blue-500">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium">
+                Import
+            </button>
+        </div>
+        <p class="text-gray-400 text-sm mt-2">Supports Feeds format and NewPipe JSON</p>
+    </form>
+
+    <div class="text-center text-gray-500 mb-4">or paste JSON directly</div>
 
     <div class="mb-6">
         <label class="block text-sm font-medium mb-2">Paste NewPipe JSON</label>
