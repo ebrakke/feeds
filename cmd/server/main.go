@@ -4,7 +4,9 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 
+	"github.com/erik/yt-app/internal/ai"
 	"github.com/erik/yt-app/internal/api"
 	"github.com/erik/yt-app/internal/db"
 	"github.com/erik/yt-app/internal/ytdlp"
@@ -41,7 +43,16 @@ func main() {
 
 	yt := ytdlp.New(*ytdlpPath)
 
-	server, err := api.NewServer(database, yt, "web/templates")
+	// OpenAI client (optional - for AI grouping)
+	var aiClient *ai.Client
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		aiClient = ai.New(key)
+		log.Println("OpenAI API key found - AI grouping enabled")
+	} else {
+		log.Println("No OPENAI_API_KEY set - AI grouping disabled")
+	}
+
+	server, err := api.NewServer(database, yt, aiClient, "web/templates")
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

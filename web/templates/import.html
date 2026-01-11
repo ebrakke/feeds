@@ -8,24 +8,57 @@
     <div class="mb-4 p-3 bg-red-900 text-red-200 rounded">{{.Error}}</div>
     {{end}}
 
-    <form method="POST" action="/import">
+    <div class="mb-6">
+        <label class="block text-sm font-medium mb-2">Paste NewPipe JSON</label>
+        <textarea id="json-input" name="json" rows="8" required placeholder='{"subscriptions": [...]}'
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-3 text-sm font-mono focus:outline-none focus:border-blue-500"></textarea>
+    </div>
+
+    <!-- Simple import with name -->
+    <form method="POST" action="/import" class="mb-4">
+        <input type="hidden" name="json" id="simple-json">
         <div class="mb-4">
             <label class="block text-sm font-medium mb-2">Feed Name</label>
             <input type="text" name="name" required
                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-3 focus:outline-none focus:border-blue-500">
         </div>
-        <div class="mb-6">
-            <label class="block text-sm font-medium mb-2">Paste NewPipe JSON</label>
-            <textarea name="json" rows="8" required placeholder='{"subscriptions": [...]}'
-                   class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-3 text-sm font-mono focus:outline-none focus:border-blue-500"></textarea>
-        </div>
-        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium">
-            Import Feed
+        <button type="submit" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 px-4 rounded font-medium">
+            Import as Single Feed
         </button>
     </form>
 
-    <a href="/" class="block text-center mt-4 text-gray-400 hover:text-white">Cancel</a>
+    <div class="text-center text-gray-500 mb-4">or</div>
+
+    <!-- AI organize -->
+    {{if .AIEnabled}}
+    <form method="POST" action="/import/organize">
+        <input type="hidden" name="json" id="organize-json">
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium">
+            Organize with AI
+        </button>
+        <p class="text-gray-400 text-sm mt-2 text-center">Let AI suggest groups based on channel topics</p>
+    </form>
+    {{else}}
+    <div class="text-gray-500 text-sm text-center p-4 bg-gray-800 rounded">
+        Set OPENAI_API_KEY to enable AI-powered organization
+    </div>
+    {{end}}
+
+    <a href="/" class="block text-center mt-6 text-gray-400 hover:text-white">Cancel</a>
 </div>
+
+<script>
+// Sync JSON textarea to hidden inputs on submit
+document.querySelectorAll('form').forEach(form => {
+    form.addEventListener('submit', function() {
+        const json = document.getElementById('json-input').value;
+        const hiddenJson = this.querySelector('input[name="json"]');
+        if (hiddenJson) {
+            hiddenJson.value = json;
+        }
+    });
+});
+</script>
 
 {{template "footer" .}}
 {{end}}

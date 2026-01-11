@@ -59,6 +59,13 @@ func (db *DB) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_channels_feed ON channels(feed_id);
 	CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
 	CREATE INDEX IF NOT EXISTS idx_videos_published ON videos(published DESC);
+
+	CREATE TABLE IF NOT EXISTS channel_metadata (
+		url TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		video_titles TEXT,
+		fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 	_, err := db.conn.Exec(schema)
 	return err
@@ -186,6 +193,7 @@ func (db *DB) UpsertVideo(v *models.Video) error {
 		INSERT INTO videos (id, channel_id, title, channel_name, thumbnail, duration, published, url)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
+			channel_id = excluded.channel_id,
 			title = excluded.title,
 			thumbnail = excluded.thumbnail,
 			duration = excluded.duration
@@ -216,4 +224,63 @@ func (db *DB) GetVideosByFeed(feedID int64, limit int) ([]models.Video, error) {
 		videos = append(videos, v)
 	}
 	return videos, rows.Err()
+}
+
+func (db *DB) DeleteVideosByFeed(feedID int64) error {
+	_, err := db.conn.Exec(`
+		DELETE FROM videos WHERE channel_id IN (
+			SELECT id FROM channels WHERE feed_id = ?
+		)
+	`, feedID)
+	return err
+}
+
+// Channel metadata operations
+
+type ChannelMetadata struct {
+	URL         string
+	Name        string
+	VideoTitles string // comma-separated
+	FetchedAt   time.Time
+}
+
+func (db *DB) GetChannelMetadata(url string) (*ChannelMetadata, error) {
+	var m ChannelMetadata
+	err := db.conn.QueryRow(
+		"SELECT url, name, video_titles, fetched_at FROM channel_metadata WHERE url = ?", url,
+	).Scan(&m.URL, &m.Name, &m.VideoTitles, &m.FetchedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (db *DB) GetAllChannelMetadata() (map[string]*ChannelMetadata, error) {
+	rows, err := db.conn.Query("SELECT url, name, video_titles, fetched_at FROM channel_metadata")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	metadata := make(map[string]*ChannelMetadata)
+	for rows.Next() {
+		var m ChannelMetadata
+		if err := rows.Scan(&m.URL, &m.Name, &m.VideoTitles, &m.FetchedAt); err != nil {
+			return nil, err
+		}
+		metadata[m.URL] = &m
+	}
+	return metadata, rows.Err()
+}
+
+func (db *DB) UpsertChannelMetadata(url, name, videoTitles string) error {
+	_, err := db.conn.Exec(`
+		INSERT INTO channel_metadata (url, name, video_titles, fetched_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(url) DO UPDATE SET
+			name = excluded.name,
+			video_titles = excluded.video_titles,
+			fetched_at = excluded.fetched_at
+	`, url, name, videoTitles, time.Now())
+	return err
 }
