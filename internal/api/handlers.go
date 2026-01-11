@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"strconv"
@@ -23,13 +24,13 @@ type Server struct {
 	templates *template.Template
 }
 
-func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesDir string) (*Server, error) {
+func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesFS fs.FS) (*Server, error) {
 	funcMap := template.FuncMap{
 		"div": func(a, b int) int { return a / b },
 		"mod": func(a, b int) int { return a % b },
 	}
 
-	tmpl, err := template.New("").Funcs(funcMap).ParseGlob(templatesDir + "/*.html")
+	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
