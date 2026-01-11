@@ -1,0 +1,23 @@
+{{define "index"}}
+{{template "header" .}}
+
+{{if .Feeds}}
+<div class="space-y-2">
+    {{range .Feeds}}
+    <a href="/feeds/{{.ID}}" class="block bg-gray-800 rounded-lg p-4 hover:bg-gray-700">
+        <h3 class="font-semibold">{{.Name}}</h3>
+        <p class="text-sm text-gray-400">Updated {{.UpdatedAt.Format "Jan 2, 2006"}}</p>
+    </a>
+    {{end}}
+</div>
+{{else}}
+<div class="text-center py-12">
+    <p class="text-gray-400 mb-4">No feeds yet.</p>
+    <a href="/import" class="inline-block bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded">
+        Import Feed
+    </a>
+</div>
+{{end}}
+
+{{template "footer" .}}
+{{end}}

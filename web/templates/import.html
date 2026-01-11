@@ -1,0 +1,31 @@
+{{define "import"}}
+{{template "header" .}}
+
+<div class="max-w-md mx-auto">
+    <h2 class="text-xl font-bold mb-6">Import NewPipe Subscriptions</h2>
+
+    {{if .Error}}
+    <div class="mb-4 p-3 bg-red-900 text-red-200 rounded">{{.Error}}</div>
+    {{end}}
+
+    <form method="POST" action="/import">
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-2">Feed Name</label>
+            <input type="text" name="name" required
+                   class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-3 focus:outline-none focus:border-blue-500">
+        </div>
+        <div class="mb-6">
+            <label class="block text-sm font-medium mb-2">Paste NewPipe JSON</label>
+            <textarea name="json" rows="8" required placeholder='{"subscriptions": [...]}'
+                   class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-3 text-sm font-mono focus:outline-none focus:border-blue-500"></textarea>
+        </div>
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium">
+            Import Feed
+        </button>
+    </form>
+
+    <a href="/" class="block text-center mt-4 text-gray-400 hover:text-white">Cancel</a>
+</div>
+
+{{template "footer" .}}
+{{end}}

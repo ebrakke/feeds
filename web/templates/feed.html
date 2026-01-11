@@ -1,0 +1,53 @@
+{{define "feed"}}
+{{template "header" .}}
+
+<div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold">{{.Feed.Name}}</h2>
+    <div class="flex gap-2">
+        <form method="POST" action="/feeds/{{.Feed.ID}}/refresh" class="inline">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded text-sm">
+                Refresh
+            </button>
+        </form>
+        <form method="POST" action="/feeds/{{.Feed.ID}}/delete" class="inline" onsubmit="return confirm('Delete this feed?')">
+            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded text-sm">
+                Delete
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Tabs -->
+<div class="flex border-b border-gray-700 mb-4">
+    <a href="/feeds/{{.Feed.ID}}?tab=videos"
+       class="py-2 px-4 {{if eq .Tab "videos"}}border-b-2 border-blue-500 text-white{{else}}text-gray-400 hover:text-white{{end}}">
+        Latest Videos
+    </a>
+    <a href="/feeds/{{.Feed.ID}}?tab=channels"
+       class="py-2 px-4 {{if eq .Tab "channels"}}border-b-2 border-blue-500 text-white{{else}}text-gray-400 hover:text-white{{end}}">
+        Channels ({{len .Channels}})
+    </a>
+</div>
+
+{{if eq .Tab "channels"}}
+<!-- Channels List -->
+<div class="space-y-2">
+    {{range .Channels}}
+    <a href="{{.URL}}" target="_blank" rel="noopener"
+       class="block bg-gray-800 rounded-lg p-3 hover:bg-gray-700 flex items-center justify-between">
+        <span>{{.Name}}</span>
+        <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+        </svg>
+    </a>
+    {{else}}
+    <p class="text-gray-400">No channels in this feed.</p>
+    {{end}}
+</div>
+{{else}}
+<!-- Videos Grid -->
+{{template "video_grid" .Videos}}
+{{end}}
+
+{{template "footer" .}}
+{{end}}
