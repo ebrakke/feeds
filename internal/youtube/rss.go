@@ -33,6 +33,7 @@ type Author struct {
 
 var channelIDRegex = regexp.MustCompile(`/channel/([^/]+)`)
 var handleRegex = regexp.MustCompile(`/@([^/]+)`)
+var videoIDRegex = regexp.MustCompile(`(?:v=|youtu\.be/|shorts/)([a-zA-Z0-9_-]{11})`)
 
 // ChannelInfo contains basic channel metadata
 type ChannelInfo struct {
@@ -47,6 +48,16 @@ var shortsIndicators = []string{"#shorts", "#short", "#Shorts", "#Short"}
 // ExtractChannelID extracts the channel ID from a YouTube channel URL
 func ExtractChannelID(channelURL string) string {
 	matches := channelIDRegex.FindStringSubmatch(channelURL)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
+// ExtractVideoID extracts the video ID from various YouTube URL formats
+// Supports: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID
+func ExtractVideoID(url string) string {
+	matches := videoIDRegex.FindStringSubmatch(url)
 	if len(matches) > 1 {
 		return matches[1]
 	}

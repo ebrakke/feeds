@@ -40,7 +40,7 @@ Piped is great for privacy-first proxying for many users. Grayjay is great as a 
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.22+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and in PATH
 
 ### Run it

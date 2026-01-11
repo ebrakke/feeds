@@ -1,8 +1,18 @@
 {{define "video_grid"}}
-{{if .}}
+{{if .Videos}}
+{{$progressMap := .ProgressMap}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-    {{range .}}
-    <div class="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition group relative">
+    {{range .Videos}}
+    {{$progress := index $progressMap .ID}}
+    {{$isWatched := false}}
+    {{$watchPercent := 0}}
+    {{if $progress}}
+        {{if and (gt $progress.DurationSeconds 0) (gt $progress.ProgressSeconds 0)}}
+            {{$watchPercent = div (mul $progress.ProgressSeconds 100) $progress.DurationSeconds}}
+            {{if gt $watchPercent 90}}{{$isWatched = true}}{{end}}
+        {{end}}
+    {{end}}
+    <div class="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition group relative{{if $isWatched}} opacity-60{{end}}">
         <a href="/watch/{{.ID}}">
             <div class="relative aspect-video bg-gray-700">
                 {{if .Thumbnail}}
@@ -13,6 +23,13 @@
                     {{if gt .Duration 3600}}{{printf "%d:%02d:%02d" (div .Duration 3600) (mod (div .Duration 60) 60) (mod .Duration 60)}}{{else}}{{printf "%d:%02d" (div .Duration 60) (mod .Duration 60)}}{{end}}
                 </span>
                 {{end}}
+                {{if $isWatched}}
+                <span class="absolute top-2 left-2 bg-blue-600 text-xs px-1.5 py-0.5 rounded">Watched</span>
+                {{else if $progress}}
+                <div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
+                    <div class="h-full bg-red-600" style="width: {{$watchPercent}}%"></div>
+                </div>
+                {{end}}
             </div>
             <div class="p-3 pr-10">
                 <h3 class="font-medium text-sm line-clamp-2 group-hover:text-blue-400 leading-snug">{{.Title}}</h3>
@@ -20,31 +37,47 @@
                 <p class="text-xs text-gray-500 mt-0.5">{{.Published.Format "Jan 2, 2006"}}</p>
             </div>
         </a>
-        <!-- Download dropdown -->
-        <div class="absolute bottom-3 right-2 download-menu">
+        <!-- Actions dropdown -->
+        <div class="absolute bottom-3 right-2 video-menu">
             <button class="p-1.5 rounded hover:bg-gray-600 text-gray-400 hover:text-white" onclick="event.stopPropagation(); this.nextElementSibling.classList.toggle('hidden')">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/>
                 </svg>
             </button>
-            <div class="hidden absolute bottom-full right-0 mb-1 bg-gray-700 rounded shadow-lg py-1 min-w-[120px] z-10">
-                <a href="/download/{{.ID}}?quality=best" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Best Quality</a>
-                <a href="/download/{{.ID}}?quality=720" class="block px-3 py-1.5 text-sm hover:bg-gray-600">720p</a>
-                <a href="/download/{{.ID}}?quality=480" class="block px-3 py-1.5 text-sm hover:bg-gray-600">480p</a>
-                <a href="/download/{{.ID}}?quality=360" class="block px-3 py-1.5 text-sm hover:bg-gray-600">360p</a>
-                <a href="/download/{{.ID}}?quality=audio" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Audio Only</a>
+            <div class="hidden absolute bottom-full right-0 mb-1 bg-gray-700 rounded shadow-lg py-1 min-w-[140px] z-10">
+                {{if $isWatched}}
+                <button onclick="markUnwatched('{{.ID}}', this)" class="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-600">Mark Unwatched</button>
+                {{else}}
+                <button onclick="markWatched('{{.ID}}', this)" class="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-600">Mark Watched</button>
+                {{end}}
+                <div class="border-t border-gray-600 my-1"></div>
+                <a href="/download/{{.ID}}?quality=best" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Download Best</a>
+                <a href="/download/{{.ID}}?quality=720" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Download 720p</a>
+                <a href="/download/{{.ID}}?quality=audio" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Download Audio</a>
             </div>
         </div>
     </div>
     {{end}}
 </div>
 <script>
-// Close download menus when clicking elsewhere
+// Close menus when clicking elsewhere
 document.addEventListener('click', function(e) {
-    if (!e.target.closest('.download-menu')) {
-        document.querySelectorAll('.download-menu > div').forEach(m => m.classList.add('hidden'));
+    if (!e.target.closest('.video-menu')) {
+        document.querySelectorAll('.video-menu > div').forEach(m => m.classList.add('hidden'));
     }
 });
+
+function markWatched(videoId, btn) {
+    fetch('/watch/' + videoId + '/mark-watched', {method: 'POST'})
+        .then(function() { location.reload(); })
+        .catch(function() {});
+}
+
+function markUnwatched(videoId, btn) {
+    fetch('/watch/' + videoId + '/mark-unwatched', {method: 'POST'})
+        .then(function() { location.reload(); })
+        .catch(function() {});
+}
 </script>
 {{else}}
 <div class="text-center py-12 text-gray-400 px-4">

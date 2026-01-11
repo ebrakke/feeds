@@ -1,6 +1,17 @@
 {{define "index"}}
 {{template "header" .}}
 
+<!-- Open video URL -->
+<form action="/open" method="POST" class="mb-4">
+    <div class="flex gap-2">
+        <input type="text" name="url" placeholder="Paste YouTube URL to watch..."
+               class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+            Open
+        </button>
+    </div>
+</form>
+
 {{if .Feeds}}
 <!-- Everything feed link -->
 <a href="/all" class="block bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-4 mb-4 hover:from-blue-500 hover:to-purple-500">

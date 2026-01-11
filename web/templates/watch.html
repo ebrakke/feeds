@@ -10,13 +10,99 @@
     </div>
 
     <h1 class="text-lg font-bold mb-2">{{.Video.Title}}</h1>
-    <p class="text-gray-400 mb-4">{{.Video.Channel}}</p>
+
+    <div class="flex items-center justify-between mb-4">
+        <p class="text-gray-400">{{.Video.Channel}}</p>
+
+        {{if .Subscribed}}
+            {{if eq .Subscribed "true"}}
+            <span class="text-green-400 text-sm">Subscribed!</span>
+            {{else if eq .Subscribed "already"}}
+            <span class="text-gray-400 text-sm">Already subscribed</span>
+            {{end}}
+        {{else if .ExistingChannel}}
+            <span class="text-gray-500 text-sm">Subscribed</span>
+        {{else if and .ChannelURL .Feeds}}
+            <form action="/watch/{{.Video.ID}}/subscribe" method="POST" class="flex items-center gap-2">
+                <input type="hidden" name="channel_url" value="{{.ChannelURL}}">
+                <input type="hidden" name="channel_name" value="{{.Video.Channel}}">
+                <select name="feed_id" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
+                    <option value="" disabled selected>Add to...</option>
+                    {{range .Feeds}}
+                    <option value="{{.ID}}">{{.Name}}</option>
+                    {{end}}
+                    <option value="0">+ Uncategorized</option>
+                </select>
+                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">
+                    Subscribe
+                </button>
+            </form>
+        {{else if not .Feeds}}
+            <a href="/import" class="text-sm text-blue-400 hover:text-blue-300">Create a feed to subscribe</a>
+        {{end}}
+    </div>
 
     <a href="https://www.youtube.com/watch?v={{.Video.ID}}" target="_blank" rel="noopener"
        class="text-sm text-gray-500 hover:text-blue-400">
         Watch on YouTube
     </a>
 </div>
+
+<script>
+(function() {
+    const player = document.getElementById('player');
+    const videoId = '{{.Video.ID}}';
+    const startTime = {{.StartTime}};
+    let lastSavedTime = 0;
+
+    // Resume from saved position
+    if (startTime > 0) {
+        player.currentTime = startTime;
+    }
+
+    // Save progress periodically (every 5 seconds of playback change)
+    function saveProgress() {
+        const currentTime = Math.floor(player.currentTime);
+        const duration = Math.floor(player.duration) || 0;
+
+        // Only save if we've moved at least 5 seconds
+        if (Math.abs(currentTime - lastSavedTime) >= 5 && duration > 0) {
+            lastSavedTime = currentTime;
+            fetch('/watch/' + videoId + '/progress', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({progress: currentTime, duration: duration})
+            }).catch(function() {}); // Ignore errors silently
+        }
+    }
+
+    // Save on timeupdate (fires frequently during playback)
+    player.addEventListener('timeupdate', saveProgress);
+
+    // Save when pausing
+    player.addEventListener('pause', function() {
+        const currentTime = Math.floor(player.currentTime);
+        const duration = Math.floor(player.duration) || 0;
+        if (duration > 0) {
+            fetch('/watch/' + videoId + '/progress', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({progress: currentTime, duration: duration})
+            }).catch(function() {});
+        }
+    });
+
+    // Save when leaving page
+    window.addEventListener('beforeunload', function() {
+        const currentTime = Math.floor(player.currentTime);
+        const duration = Math.floor(player.duration) || 0;
+        if (duration > 0) {
+            navigator.sendBeacon('/watch/' + videoId + '/progress',
+                JSON.stringify({progress: currentTime, duration: duration}));
+        }
+    });
+})();
+</script>
 
 {{template "footer" .}}
 {{end}}
