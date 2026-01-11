@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/api"
@@ -13,6 +15,43 @@ import (
 	"github.com/erik/feeds/internal/ytdlp"
 	"github.com/erik/feeds/web"
 )
+
+// loadEnvFile loads environment variables from a .env file if it exists
+func loadEnvFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return // silently ignore missing .env
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if key, val, ok := strings.Cut(line, "="); ok {
+			key = strings.TrimSpace(key)
+			val = strings.TrimSpace(val)
+			// Remove surrounding quotes if present
+			if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+				val = val[1 : len(val)-1]
+			}
+			// Only set if not already in environment (env vars take precedence)
+			if os.Getenv(key) == "" {
+				os.Setenv(key, val)
+			}
+		}
+	}
+}
+
+// getEnvOrDefault returns the environment variable value or a default
+func getEnvOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
+}
 
 // Set via ldflags at build time
 var (
@@ -38,9 +77,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	addr := flag.String("addr", ":8080", "HTTP server address")
-	dbPath := flag.String("db", "feeds.db", "SQLite database path")
-	ytdlpPath := flag.String("ytdlp", "yt-dlp", "Path to yt-dlp binary")
+	// Load .env file first (before flag parsing so env vars are available for defaults)
+	loadEnvFile(".env")
+
+	// Flags with environment variable defaults
+	addr := flag.String("addr", getEnvOrDefault("FEEDS_ADDR", ":8080"), "HTTP server address")
+	dbPath := flag.String("db", getEnvOrDefault("FEEDS_DB", "feeds.db"), "SQLite database path")
+	ytdlpPath := flag.String("ytdlp", getEnvOrDefault("FEEDS_YTDLP", "yt-dlp"), "Path to yt-dlp binary")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 
 	flag.Usage = func() {
@@ -48,7 +91,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: feeds [options]\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nEnvironment:\n")
+		fmt.Fprintf(os.Stderr, "\nEnvironment (can also be set in .env file):\n")
+		fmt.Fprintf(os.Stderr, "  FEEDS_ADDR        Server address (default :8080)\n")
+		fmt.Fprintf(os.Stderr, "  FEEDS_DB          Database path (default feeds.db)\n")
+		fmt.Fprintf(os.Stderr, "  FEEDS_YTDLP       Path to yt-dlp binary (default yt-dlp)\n")
 		fmt.Fprintf(os.Stderr, "  OPENAI_API_KEY    Enable AI-powered subscription organization\n")
 	}
 

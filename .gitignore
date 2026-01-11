@@ -32,6 +32,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Environment
+.env
+
 # Go workspace
 go.work
 go.work.sum
