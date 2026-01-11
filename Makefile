@@ -1,7 +1,7 @@
-# yt-app Makefile
+# feeds Makefile
 # Build a single binary with embedded templates
 
-BINARY_NAME = yt-app
+BINARY_NAME = feeds
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME = $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS = -ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
@@ -70,7 +70,7 @@ install:
 
 .PHONY: help
 help:
-	@echo "yt-app build targets:"
+	@echo "feeds build targets:"
 	@echo ""
 	@echo "  make              - Build for current platform"
 	@echo "  make build        - Build for current platform"

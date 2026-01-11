@@ -1,4 +1,4 @@
-module github.com/erik/yt-app
+module github.com/erik/feeds
 
 go 1.24.3
 

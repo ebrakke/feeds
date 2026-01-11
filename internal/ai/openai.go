@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erik/yt-app/internal/models"
+	"github.com/erik/feeds/internal/models"
 )
 
 // truncateList joins up to n items from a slice

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/erik/yt-app/internal/models"
+	"github.com/erik/feeds/internal/models"
 )
 
 // RSS feed structures

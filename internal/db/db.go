@@ -6,7 +6,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/erik/yt-app/internal/models"
+	"github.com/erik/feeds/internal/models"
 )
 
 type DB struct {

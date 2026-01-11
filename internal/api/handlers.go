@@ -10,11 +10,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/erik/yt-app/internal/ai"
-	"github.com/erik/yt-app/internal/db"
-	"github.com/erik/yt-app/internal/models"
-	"github.com/erik/yt-app/internal/youtube"
-	"github.com/erik/yt-app/internal/ytdlp"
+	"github.com/erik/feeds/internal/ai"
+	"github.com/erik/feeds/internal/db"
+	"github.com/erik/feeds/internal/models"
+	"github.com/erik/feeds/internal/youtube"
+	"github.com/erik/feeds/internal/ytdlp"
 )
 
 type Server struct {

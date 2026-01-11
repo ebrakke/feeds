@@ -1,12 +1,12 @@
 #!/bin/sh
 set -e
 
-# yt-app installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/erik/yt-app/main/install.sh | sh
+# feeds installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/erik/feeds/main/install.sh | sh
 
-REPO="erik/yt-app"
+REPO="erik/feeds"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
-BINARY_NAME="yt-app"
+BINARY_NAME="feeds"
 
 # Detect OS and architecture
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -83,5 +83,5 @@ echo "Successfully installed $BINARY_NAME to $INSTALL_DIR/$BINARY_NAME"
 echo ""
 echo "Run '$BINARY_NAME --help' to get started."
 echo ""
-echo "Note: yt-dlp is required for video playback/downloads."
+echo "Note: yt-dlp is required for video downloads."
 echo "      Install it via: brew install yt-dlp (macOS) or pip install yt-dlp"

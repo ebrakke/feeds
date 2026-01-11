@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/erik/yt-app/internal/ai"
-	"github.com/erik/yt-app/internal/api"
-	"github.com/erik/yt-app/internal/db"
-	"github.com/erik/yt-app/internal/ytdlp"
-	"github.com/erik/yt-app/web"
+	"github.com/erik/feeds/internal/ai"
+	"github.com/erik/feeds/internal/api"
+	"github.com/erik/feeds/internal/db"
+	"github.com/erik/feeds/internal/ytdlp"
+	"github.com/erik/feeds/web"
 )
 
 // Set via ldflags at build time
@@ -39,13 +39,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 func main() {
 	addr := flag.String("addr", ":8080", "HTTP server address")
-	dbPath := flag.String("db", "yt-app.db", "SQLite database path")
+	dbPath := flag.String("db", "feeds.db", "SQLite database path")
 	ytdlpPath := flag.String("ytdlp", "yt-dlp", "Path to yt-dlp binary")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "yt-app - YouTube subscription aggregator\n\n")
-		fmt.Fprintf(os.Stderr, "Usage: yt-app [options]\n\n")
+		fmt.Fprintf(os.Stderr, "feeds - YouTube subscription aggregator\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: feeds [options]\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment:\n")
@@ -55,7 +55,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("yt-app %s (built %s)\n", Version, BuildTime)
+		fmt.Printf("feeds %s (built %s)\n", Version, BuildTime)
 		os.Exit(0)
 	}
 
