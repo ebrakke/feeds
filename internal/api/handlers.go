@@ -53,7 +53,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /feeds/{id}/export", s.handleExportFeed)
 	mux.HandleFunc("POST /feeds/{id}/refresh", s.handleRefreshFeed)
 	mux.HandleFunc("POST /feeds/{id}/delete", s.handleDeleteFeed)
+	mux.HandleFunc("POST /channels/{id}/delete", s.handleDeleteChannel)
+	mux.HandleFunc("POST /channels/{id}/move", s.handleMoveChannel)
+	mux.HandleFunc("POST /feeds/{id}/add-channel", s.handleAddChannel)
+	mux.HandleFunc("GET /channels/{id}", s.handleChannelPage)
+	mux.HandleFunc("GET /download/{id}", s.handleDownload)
 	mux.HandleFunc("GET /watch/{id}", s.handleWatchPage)
+	mux.HandleFunc("GET /all", s.handleAllRecent)
 }
 
 // Page handlers
@@ -70,6 +76,20 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"Feeds": feeds,
 	}
 	s.templates.ExecuteTemplate(w, "index", data)
+}
+
+func (s *Server) handleAllRecent(w http.ResponseWriter, r *http.Request) {
+	videos, err := s.db.GetAllRecentVideos(100)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := map[string]any{
+		"Title":  "Everything",
+		"Videos": videos,
+	}
+	s.templates.ExecuteTemplate(w, "all", data)
 }
 
 func (s *Server) handleImportPage(w http.ResponseWriter, r *http.Request) {
@@ -174,12 +194,24 @@ func (s *Server) handleFeedPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get all feeds for the move dropdown
+	allFeeds, err := s.db.GetFeeds()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check for error query param (from add channel)
+	errorMsg := r.URL.Query().Get("error")
+
 	data := map[string]any{
 		"Title":    feed.Name,
 		"Feed":     feed,
 		"Tab":      tab,
 		"Channels": channels,
 		"Videos":   videos,
+		"AllFeeds": allFeeds,
+		"Error":    errorMsg,
 	}
 	s.templates.ExecuteTemplate(w, "feed", data)
 }
@@ -280,6 +312,160 @@ func (s *Server) handleWatchPage(w http.ResponseWriter, r *http.Request) {
 		"StreamURL": streamURL,
 	}
 	s.templates.ExecuteTemplate(w, "watch", data)
+}
+
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+	quality := r.URL.Query().Get("quality")
+	if quality == "" {
+		quality = "best"
+	}
+
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
+
+	downloadURL, ext, err := s.ytdlp.GetDownloadURL(videoURL, quality)
+	if err != nil {
+		log.Printf("Failed to get download URL: %v", err)
+		http.Error(w, "Failed to get download URL", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers to trigger download in browser
+	filename := videoID + "." + ext
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+	// Redirect to the direct URL - browser will download
+	http.Redirect(w, r, downloadURL, http.StatusFound)
+}
+
+func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
+	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	channel, err := s.db.GetChannel(channelID)
+	if err != nil {
+		http.Error(w, "Channel not found", http.StatusNotFound)
+		return
+	}
+
+	feed, err := s.db.GetFeed(channel.FeedID)
+	if err != nil {
+		http.Error(w, "Feed not found", http.StatusNotFound)
+		return
+	}
+
+	videos, err := s.db.GetVideosByChannel(channelID, 50)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := map[string]any{
+		"Title":   channel.Name,
+		"Channel": channel,
+		"Feed":    feed,
+		"Videos":  videos,
+	}
+	s.templates.ExecuteTemplate(w, "channel", data)
+}
+
+func (s *Server) handleAddChannel(w http.ResponseWriter, r *http.Request) {
+	feedID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	channelURL := strings.TrimSpace(r.FormValue("url"))
+	if channelURL == "" {
+		http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10)+"?tab=channels&error=url_required", http.StatusSeeOther)
+		return
+	}
+
+	// Resolve the channel URL to get channel info
+	info, err := youtube.ResolveChannelURL(channelURL)
+	if err != nil {
+		log.Printf("Failed to resolve channel URL %s: %v", channelURL, err)
+		http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10)+"?tab=channels&error=invalid_channel", http.StatusSeeOther)
+		return
+	}
+
+	// Add the channel to the feed
+	if _, err := s.db.AddChannel(feedID, info.URL, info.Name); err != nil {
+		log.Printf("Failed to add channel: %v", err)
+		http.Error(w, "Failed to add channel", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Added channel %s (%s) to feed %d", info.Name, info.URL, feedID)
+	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10)+"?tab=channels", http.StatusSeeOther)
+}
+
+func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
+	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get channel to know which feed to redirect to
+	channel, err := s.db.GetChannel(channelID)
+	if err != nil {
+		http.Error(w, "Channel not found", http.StatusNotFound)
+		return
+	}
+
+	feedID := channel.FeedID
+
+	if err := s.db.DeleteChannel(channelID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10)+"?tab=channels", http.StatusSeeOther)
+}
+
+func (s *Server) handleMoveChannel(w http.ResponseWriter, r *http.Request) {
+	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	newFeedID, err := strconv.ParseInt(r.FormValue("feed_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	// Get channel to know which feed to redirect to
+	channel, err := s.db.GetChannel(channelID)
+	if err != nil {
+		http.Error(w, "Channel not found", http.StatusNotFound)
+		return
+	}
+
+	originalFeedID := channel.FeedID
+
+	if err := s.db.MoveChannel(channelID, newFeedID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(originalFeedID, 10)+"?tab=channels", http.StatusSeeOther)
 }
 
 // handleOrganize uses AI to suggest groups for subscriptions

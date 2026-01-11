@@ -2,25 +2,50 @@
 {{if .}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
     {{range .}}
-    <a href="/watch/{{.ID}}" class="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition group">
-        <div class="relative aspect-video bg-gray-700">
-            {{if .Thumbnail}}
-            <img src="{{.Thumbnail}}" alt="{{.Title}}" class="w-full h-full object-cover" loading="lazy">
-            {{end}}
-            {{if .Duration}}
-            <span class="absolute bottom-2 right-2 bg-black bg-opacity-80 text-xs px-1.5 py-0.5 rounded">
-                {{if gt .Duration 3600}}{{printf "%d:%02d:%02d" (div .Duration 3600) (mod (div .Duration 60) 60) (mod .Duration 60)}}{{else}}{{printf "%d:%02d" (div .Duration 60) (mod .Duration 60)}}{{end}}
-            </span>
-            {{end}}
+    <div class="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition group relative">
+        <a href="/watch/{{.ID}}">
+            <div class="relative aspect-video bg-gray-700">
+                {{if .Thumbnail}}
+                <img src="{{.Thumbnail}}" alt="{{.Title}}" class="w-full h-full object-cover" loading="lazy">
+                {{end}}
+                {{if .Duration}}
+                <span class="absolute bottom-2 right-2 bg-black bg-opacity-80 text-xs px-1.5 py-0.5 rounded">
+                    {{if gt .Duration 3600}}{{printf "%d:%02d:%02d" (div .Duration 3600) (mod (div .Duration 60) 60) (mod .Duration 60)}}{{else}}{{printf "%d:%02d" (div .Duration 60) (mod .Duration 60)}}{{end}}
+                </span>
+                {{end}}
+            </div>
+            <div class="p-3 pr-10">
+                <h3 class="font-medium text-sm line-clamp-2 group-hover:text-blue-400 leading-snug">{{.Title}}</h3>
+                <p class="text-xs text-gray-400 mt-1.5 truncate">{{.ChannelName}}</p>
+                <p class="text-xs text-gray-500 mt-0.5">{{.Published.Format "Jan 2, 2006"}}</p>
+            </div>
+        </a>
+        <!-- Download dropdown -->
+        <div class="absolute bottom-3 right-2 download-menu">
+            <button class="p-1.5 rounded hover:bg-gray-600 text-gray-400 hover:text-white" onclick="event.stopPropagation(); this.nextElementSibling.classList.toggle('hidden')">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+            </button>
+            <div class="hidden absolute bottom-full right-0 mb-1 bg-gray-700 rounded shadow-lg py-1 min-w-[120px] z-10">
+                <a href="/download/{{.ID}}?quality=best" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Best Quality</a>
+                <a href="/download/{{.ID}}?quality=720" class="block px-3 py-1.5 text-sm hover:bg-gray-600">720p</a>
+                <a href="/download/{{.ID}}?quality=480" class="block px-3 py-1.5 text-sm hover:bg-gray-600">480p</a>
+                <a href="/download/{{.ID}}?quality=360" class="block px-3 py-1.5 text-sm hover:bg-gray-600">360p</a>
+                <a href="/download/{{.ID}}?quality=audio" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Audio Only</a>
+            </div>
         </div>
-        <div class="p-3">
-            <h3 class="font-medium text-sm line-clamp-2 group-hover:text-blue-400 leading-snug">{{.Title}}</h3>
-            <p class="text-xs text-gray-400 mt-1.5 truncate">{{.ChannelName}}</p>
-            <p class="text-xs text-gray-500 mt-0.5">{{.Published.Format "Jan 2, 2006"}}</p>
-        </div>
-    </a>
+    </div>
     {{end}}
 </div>
+<script>
+// Close download menus when clicking elsewhere
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.download-menu')) {
+        document.querySelectorAll('.download-menu > div').forEach(m => m.classList.add('hidden'));
+    }
+});
+</script>
 {{else}}
 <div class="text-center py-12 text-gray-400 px-4">
     <p>No videos yet. Tap "Refresh" to fetch the latest videos from this feed's channels.</p>

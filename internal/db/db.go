@@ -168,7 +168,7 @@ func (db *DB) AddChannel(feedID int64, url, name string) (*models.Channel, error
 
 func (db *DB) GetChannelsByFeed(feedID int64) ([]models.Channel, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, feed_id, url, name FROM channels WHERE feed_id = ?", feedID,
+		"SELECT id, feed_id, url, name FROM channels WHERE feed_id = ? ORDER BY name", feedID,
 	)
 	if err != nil {
 		return nil, err
@@ -184,6 +184,27 @@ func (db *DB) GetChannelsByFeed(feedID int64) ([]models.Channel, error) {
 		channels = append(channels, c)
 	}
 	return channels, rows.Err()
+}
+
+func (db *DB) DeleteChannel(channelID int64) error {
+	_, err := db.conn.Exec("DELETE FROM channels WHERE id = ?", channelID)
+	return err
+}
+
+func (db *DB) MoveChannel(channelID, newFeedID int64) error {
+	_, err := db.conn.Exec("UPDATE channels SET feed_id = ? WHERE id = ?", newFeedID, channelID)
+	return err
+}
+
+func (db *DB) GetChannel(channelID int64) (*models.Channel, error) {
+	var c models.Channel
+	err := db.conn.QueryRow(
+		"SELECT id, feed_id, url, name FROM channels WHERE id = ?", channelID,
+	).Scan(&c.ID, &c.FeedID, &c.URL, &c.Name)
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 // Video operations
@@ -226,6 +247,30 @@ func (db *DB) GetVideosByFeed(feedID int64, limit int) ([]models.Video, error) {
 	return videos, rows.Err()
 }
 
+func (db *DB) GetVideosByChannel(channelID int64, limit int) ([]models.Video, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, channel_id, title, channel_name, thumbnail, duration, published, url
+		FROM videos
+		WHERE channel_id = ?
+		ORDER BY published DESC
+		LIMIT ?
+	`, channelID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	for rows.Next() {
+		var v models.Video
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+			return nil, err
+		}
+		videos = append(videos, v)
+	}
+	return videos, rows.Err()
+}
+
 func (db *DB) DeleteVideosByFeed(feedID int64) error {
 	_, err := db.conn.Exec(`
 		DELETE FROM videos WHERE channel_id IN (
@@ -233,6 +278,29 @@ func (db *DB) DeleteVideosByFeed(feedID int64) error {
 		)
 	`, feedID)
 	return err
+}
+
+func (db *DB) GetAllRecentVideos(limit int) ([]models.Video, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, channel_id, title, channel_name, thumbnail, duration, published, url
+		FROM videos
+		ORDER BY published DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	for rows.Next() {
+		var v models.Video
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+			return nil, err
+		}
+		videos = append(videos, v)
+	}
+	return videos, rows.Err()
 }
 
 // Channel metadata operations

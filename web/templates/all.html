@@ -1,0 +1,14 @@
+{{define "all"}}
+{{template "header" .}}
+
+<div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold">Everything</h2>
+    <a href="/" class="text-gray-400 hover:text-white text-sm">
+        &larr; Back to Feeds
+    </a>
+</div>
+
+{{template "video_grid" .Videos}}
+
+{{template "footer" .}}
+{{end}}

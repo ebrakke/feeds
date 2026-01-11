@@ -2,6 +2,12 @@
 {{template "header" .}}
 
 {{if .Feeds}}
+<!-- Everything feed link -->
+<a href="/all" class="block bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-4 mb-4 hover:from-blue-500 hover:to-purple-500">
+    <h3 class="font-semibold">Everything</h3>
+    <p class="text-sm text-blue-100">Recent videos from all feeds</p>
+</a>
+
 <div class="space-y-2">
     {{range .Feeds}}
     <a href="/feeds/{{.ID}}" class="block bg-gray-800 rounded-lg p-4 hover:bg-gray-700">

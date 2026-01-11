@@ -139,6 +139,58 @@ func (y *YTDLP) GetVideoInfo(videoURL string) (*VideoInfo, error) {
 	return &info, nil
 }
 
+// Format represents available video formats
+type Format struct {
+	FormatID   string `json:"format_id"`
+	Ext        string `json:"ext"`
+	Resolution string `json:"resolution"`
+	Height     int    `json:"height"`
+	Filesize   int64  `json:"filesize"`
+	VCodec     string `json:"vcodec"`
+	ACodec     string `json:"acodec"`
+}
+
+// GetDownloadURL gets the direct download URL for a specific quality
+// Quality options: "best", "720", "480", "360", "audio"
+func (y *YTDLP) GetDownloadURL(videoURL string, quality string) (string, string, error) {
+	var format string
+	var ext string
+
+	switch quality {
+	case "audio":
+		format = "bestaudio[ext=m4a]/bestaudio"
+		ext = "m4a"
+	case "360":
+		format = "best[height<=360][ext=mp4]/best[height<=360]"
+		ext = "mp4"
+	case "480":
+		format = "best[height<=480][ext=mp4]/best[height<=480]"
+		ext = "mp4"
+	case "720":
+		format = "best[height<=720][ext=mp4]/best[height<=720]"
+		ext = "mp4"
+	default: // "best"
+		format = "best[ext=mp4]/best"
+		ext = "mp4"
+	}
+
+	cmd := exec.Command(y.BinPath,
+		"--get-url",
+		"--format", format,
+		videoURL,
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", "", fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
+	}
+
+	return string(bytes.TrimSpace(stdout.Bytes())), ext, nil
+}
+
 // ToModel converts VideoInfo to our Video model
 func (v *VideoInfo) ToModel(channelID int64, channelName string) *models.Video {
 	published := time.Now()

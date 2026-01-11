@@ -3,6 +3,7 @@ package youtube
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -14,6 +15,8 @@ import (
 // RSS feed structures
 type Feed struct {
 	XMLName xml.Name `xml:"feed"`
+	Title   string   `xml:"title"`
+	Author  Author   `xml:"author"`
 	Entries []Entry  `xml:"entry"`
 }
 
@@ -29,6 +32,14 @@ type Author struct {
 }
 
 var channelIDRegex = regexp.MustCompile(`/channel/([^/]+)`)
+var handleRegex = regexp.MustCompile(`/@([^/]+)`)
+
+// ChannelInfo contains basic channel metadata
+type ChannelInfo struct {
+	ID   string
+	Name string
+	URL  string
+}
 
 // Common shorts indicators in titles
 var shortsIndicators = []string{"#shorts", "#short", "#Shorts", "#Short"}
@@ -40,6 +51,101 @@ func ExtractChannelID(channelURL string) string {
 		return matches[1]
 	}
 	return ""
+}
+
+// ResolveChannelURL takes any YouTube channel URL format and returns channel info
+// Supports: /channel/ID, /@handle, /c/customname, /user/username
+func ResolveChannelURL(inputURL string) (*ChannelInfo, error) {
+	// Normalize the URL
+	inputURL = strings.TrimSpace(inputURL)
+	if !strings.HasPrefix(inputURL, "http") {
+		inputURL = "https://www.youtube.com/" + strings.TrimPrefix(inputURL, "/")
+	}
+
+	// If it's already a /channel/ URL, try RSS directly
+	if channelID := ExtractChannelID(inputURL); channelID != "" {
+		return fetchChannelInfoByID(channelID)
+	}
+
+	// For handles and other formats, we need to resolve the actual channel ID
+	// by fetching the page and looking for the channel ID
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Get(inputURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch channel page: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("channel page returned status %d", resp.StatusCode)
+	}
+
+	// The final URL after redirects should contain the channel ID or we can extract from page
+	finalURL := resp.Request.URL.String()
+	if channelID := ExtractChannelID(finalURL); channelID != "" {
+		return fetchChannelInfoByID(channelID)
+	}
+
+	// Read body and look for channel ID in the HTML
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	body := string(bodyBytes)
+
+	// Look for channel ID in various places in the HTML
+	patterns := []string{
+		`"channelId":"([^"]+)"`,
+		`/channel/([^"/?]+)`,
+		`"externalId":"([^"]+)"`,
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		if matches := re.FindStringSubmatch(body); len(matches) > 1 {
+			return fetchChannelInfoByID(matches[1])
+		}
+	}
+
+	return nil, fmt.Errorf("could not find channel ID for URL: %s", inputURL)
+}
+
+// fetchChannelInfoByID fetches channel info from RSS feed
+func fetchChannelInfoByID(channelID string) (*ChannelInfo, error) {
+	rssURL := fmt.Sprintf("https://www.youtube.com/feeds/videos.xml?channel_id=%s", channelID)
+
+	resp, err := http.Get(rssURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch RSS: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("RSS returned status %d", resp.StatusCode)
+	}
+
+	var feed Feed
+	if err := xml.NewDecoder(resp.Body).Decode(&feed); err != nil {
+		return nil, fmt.Errorf("failed to parse RSS: %w", err)
+	}
+
+	channelName := feed.Author.Name
+	if channelName == "" && len(feed.Entries) > 0 {
+		channelName = feed.Entries[0].Author.Name
+	}
+	if channelName == "" {
+		// Try to get name from title (format: "YouTube channel name")
+		channelName = strings.TrimSuffix(feed.Title, " - YouTube")
+	}
+
+	return &ChannelInfo{
+		ID:   channelID,
+		Name: channelName,
+		URL:  fmt.Sprintf("https://www.youtube.com/channel/%s", channelID),
+	}, nil
 }
 
 // FetchLatestVideos fetches latest videos from a channel's RSS feed
