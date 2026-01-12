@@ -1212,8 +1212,6 @@ func (s *Server) handleOpenVideo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSubscribeFromWatch(w http.ResponseWriter, r *http.Request) {
-	videoID := r.PathValue("id")
-
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
@@ -1235,8 +1233,8 @@ func (s *Server) handleSubscribeFromWatch(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if existing != nil {
-		// Already subscribed, just redirect back
-		http.Redirect(w, r, "/watch/"+videoID+"?subscribed=already", http.StatusSeeOther)
+		// Already subscribed - return success (idempotent)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
@@ -1259,7 +1257,7 @@ func (s *Server) handleSubscribeFromWatch(w http.ResponseWriter, r *http.Request
 	}
 
 	log.Printf("Subscribed to %s (%s) in feed %d from watch page", channelName, channelURL, feedID)
-	http.Redirect(w, r, "/watch/"+videoID+"?subscribed=true", http.StatusSeeOther)
+	w.WriteHeader(http.StatusOK)
 }
 
 // handlePacksList returns a JSON list of available packs
