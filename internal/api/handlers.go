@@ -26,6 +26,18 @@ type Server struct {
 	ai        *ai.Client
 	templates *template.Template
 	packs     fs.FS
+
+	// Stream URL cache (video ID -> cached entry)
+	streamCache   map[string]*streamCacheEntry
+	streamCacheMu sync.RWMutex
+}
+
+type streamCacheEntry struct {
+	streamURL string
+	title     string
+	channel   string
+	channelURL string
+	expiresAt time.Time
 }
 
 func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesFS fs.FS, packsFS fs.FS) (*Server, error) {
@@ -41,11 +53,12 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 	}
 
 	return &Server{
-		db:        database,
-		ytdlp:     yt,
-		ai:        aiClient,
-		templates: tmpl,
-		packs:     packsFS,
+		db:          database,
+		ytdlp:       yt,
+		ai:          aiClient,
+		templates:   tmpl,
+		packs:       packsFS,
+		streamCache: make(map[string]*streamCacheEntry),
 	}, nil
 }
 
@@ -652,6 +665,33 @@ func (s *Server) handleWatchPage(w http.ResponseWriter, r *http.Request) {
 // handleWatchInfo returns video info and stream URL as JSON (called async from watch page)
 func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
+
+	// Check cache first
+	s.streamCacheMu.RLock()
+	cached, ok := s.streamCache[videoID]
+	s.streamCacheMu.RUnlock()
+
+	if ok && time.Now().Before(cached.expiresAt) {
+		// Cache hit - check subscription status and return
+		var existingChannelID int64
+		if cached.channelURL != "" {
+			if existing, _ := s.db.GetChannelByURL(cached.channelURL); existing != nil {
+				existingChannelID = existing.ID
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"title":             cached.title,
+			"channel":           cached.channel,
+			"streamURL":         cached.streamURL,
+			"channelURL":        cached.channelURL,
+			"existingChannelID": existingChannelID,
+		})
+		return
+	}
+
+	// Cache miss - fetch from ytdlp
 	videoURL := "https://www.youtube.com/watch?v=" + videoID
 
 	// Get video info
@@ -679,6 +719,17 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 			channelURL = channelInfo.URL
 		}
 	}
+
+	// Cache the result (5 minute TTL - stream URLs expire after ~6 hours but we keep it short)
+	s.streamCacheMu.Lock()
+	s.streamCache[videoID] = &streamCacheEntry{
+		streamURL:  streamURL,
+		title:      info.Title,
+		channel:    info.Channel,
+		channelURL: channelURL,
+		expiresAt:  time.Now().Add(5 * time.Minute),
+	}
+	s.streamCacheMu.Unlock()
 
 	// Check if already subscribed
 	var existingChannelID int64

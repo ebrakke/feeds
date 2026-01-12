@@ -53,7 +53,7 @@
         {{else if .Feeds}}
             <!-- Subscribe form will be shown after video info loads -->
             <div id="subscribe-placeholder" class="hidden">
-                <form id="subscribe-form" class="flex items-center gap-2">
+                <form id="subscribe-form" class="flex items-center gap-2" hx-boost="false">
                     <input type="hidden" name="channel_url" id="channel-url-input" value="">
                     <input type="hidden" name="channel_name" id="channel-name-input" value="">
                     <select name="feed_id" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
