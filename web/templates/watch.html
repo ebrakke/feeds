@@ -53,24 +53,24 @@
         {{else if .Feeds}}
             <!-- Subscribe form will be shown after video info loads -->
             <div id="subscribe-placeholder" class="hidden">
-                <form id="subscribe-form" class="flex items-center gap-2" hx-boost="false">
-                    <input type="hidden" name="channel_url" id="channel-url-input" value="">
-                    <input type="hidden" name="channel_name" id="channel-name-input" value="">
-                    <select name="feed_id" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
+                <div id="subscribe-form" class="flex items-center gap-2">
+                    <input type="hidden" id="channel-url-input" value="">
+                    <input type="hidden" id="channel-name-input" value="">
+                    <select id="feed-select" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
                         <option value="" disabled selected>Add to...</option>
                         {{range .Feeds}}
                         <option value="{{.ID}}">{{.Name}}</option>
                         {{end}}
                         <option value="0">+ Uncategorized</option>
                     </select>
-                    <button type="submit" id="subscribe-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-1">
+                    <button type="button" id="subscribe-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-1">
                         <svg id="subscribe-spinner" class="hidden animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
                         <span id="subscribe-text">Subscribe</span>
                     </button>
-                </form>
+                </div>
             </div>
             <span id="already-subscribed" class="hidden text-gray-500 text-sm">Subscribed</span>
         {{else}}
@@ -161,30 +161,39 @@
                 }
             }
 
-            // Set up subscribe form handler
-            const subscribeForm = document.getElementById('subscribe-form');
-            if (subscribeForm) {
-                subscribeForm.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    const form = this;
-                    const btn = document.getElementById('subscribe-btn');
+            // Set up subscribe button click handler
+            const subscribeBtn = document.getElementById('subscribe-btn');
+            if (subscribeBtn) {
+                subscribeBtn.addEventListener('click', function() {
+                    const btn = this;
                     const spinner = document.getElementById('subscribe-spinner');
                     const text = document.getElementById('subscribe-text');
                     const container = document.getElementById('subscribe-container');
+                    const feedSelect = document.getElementById('feed-select');
+                    const channelUrl = document.getElementById('channel-url-input').value;
+                    const channelName = document.getElementById('channel-name-input').value;
 
-                    const feedId = form.feed_id.value;
-                    if (!feedId) return;
+                    const feedId = feedSelect.value;
+                    if (!feedId) {
+                        feedSelect.focus();
+                        return;
+                    }
 
                     spinner.classList.remove('hidden');
                     text.textContent = 'Subscribing...';
                     btn.disabled = true;
 
-                    const formData = new FormData(form);
+                    const formData = new URLSearchParams();
+                    formData.append('feed_id', feedId);
+                    formData.append('channel_url', channelUrl);
+                    formData.append('channel_name', channelName);
+
                     fetch('/watch/' + videoId + '/subscribe', {
                         method: 'POST',
-                        body: formData
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: formData.toString()
                     }).then(function(response) {
-                        if (response.ok || response.redirected) {
+                        if (response.ok) {
                             container.innerHTML = '<span class="text-green-400 text-sm">Subscribed!</span>';
                         } else {
                             spinner.classList.add('hidden');
