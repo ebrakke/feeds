@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "Personal Finance",
+  "description": "Personal finance education, investing strategies, and money management",
+  "author": "Feeds",
+  "tags": ["finance", "investing", "money", "budgeting"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/channel/UCV6KDgJskWaEckne5aPA0aQ",
+      "name": "Graham Stephan"
+    },
+    {
+      "url": "https://www.youtube.com/channel/UCGy7SkBjcIAgTiwkXEtPnYg",
+      "name": "Andrei Jikh"
+    },
+    {
+      "url": "https://www.youtube.com/@TheRamseyShow",
+      "name": "The Ramsey Show"
+    },
+    {
+      "url": "https://www.youtube.com/@MeetKevin",
+      "name": "Meet Kevin"
+    },
+    {
+      "url": "https://www.youtube.com/@WhiteboardFinance",
+      "name": "Whiteboard Finance"
+    },
+    {
+      "url": "https://www.youtube.com/@TheMoneyGuyShow",
+      "name": "The Money Guy Show"
+    },
+    {
+      "url": "https://www.youtube.com/@ThePlainBagel",
+      "name": "The Plain Bagel"
+    },
+    {
+      "url": "https://www.youtube.com/@MinorityMindset",
+      "name": "Minority Mindset"
+    },
+    {
+      "url": "https://www.youtube.com/@TwoSidesOfFI",
+      "name": "Two Sides of FI"
+    },
+    {
+      "url": "https://www.youtube.com/@BenFelixCSI",
+      "name": "Ben Felix"
+    }
+  ]
+}

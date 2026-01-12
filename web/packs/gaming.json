@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "Gaming",
+  "description": "Gaming walkthroughs, let's plays, and gaming entertainment",
+  "author": "Feeds",
+  "tags": ["gaming", "games", "letsplay", "walkthrough"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/@markiplier",
+      "name": "Markiplier"
+    },
+    {
+      "url": "https://www.youtube.com/@jacksepticeye",
+      "name": "jacksepticeye"
+    },
+    {
+      "url": "https://www.youtube.com/@theRadBrad",
+      "name": "theRadBrad"
+    },
+    {
+      "url": "https://www.youtube.com/@VanossGaming",
+      "name": "VanossGaming"
+    },
+    {
+      "url": "https://www.youtube.com/@DanTDM",
+      "name": "DanTDM"
+    },
+    {
+      "url": "https://www.youtube.com/@penguinz0",
+      "name": "penguinz0"
+    },
+    {
+      "url": "https://www.youtube.com/@GameGrumps",
+      "name": "Game Grumps"
+    },
+    {
+      "url": "https://www.youtube.com/@GTLive",
+      "name": "GTLive"
+    },
+    {
+      "url": "https://www.youtube.com/@IGN",
+      "name": "IGN"
+    },
+    {
+      "url": "https://www.youtube.com/@Gameranx",
+      "name": "gameranx"
+    }
+  ]
+}

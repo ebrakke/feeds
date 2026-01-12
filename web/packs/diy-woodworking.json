@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "DIY & Woodworking",
+  "description": "Woodworking tutorials, maker projects, and DIY home improvement",
+  "author": "Feeds",
+  "tags": ["diy", "woodworking", "maker", "crafts"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/@WoodworkingforMereMortals",
+      "name": "Woodworking for Mere Mortals"
+    },
+    {
+      "url": "https://www.youtube.com/@iliketomakestuffcom",
+      "name": "I Like To Make Stuff"
+    },
+    {
+      "url": "https://www.youtube.com/@makesomething",
+      "name": "Make Something"
+    },
+    {
+      "url": "https://www.youtube.com/@BlacktailStudio",
+      "name": "Blacktail Studio"
+    },
+    {
+      "url": "https://www.youtube.com/@AprilWilkerson",
+      "name": "April Wilkerson"
+    },
+    {
+      "url": "https://www.youtube.com/@jimmydiresta",
+      "name": "Jimmy DiResta"
+    },
+    {
+      "url": "https://www.youtube.com/@frankhowarth",
+      "name": "Frank Howarth"
+    },
+    {
+      "url": "https://www.youtube.com/@TheSamuraiCarpenter",
+      "name": "The Samurai Carpenter"
+    },
+    {
+      "url": "https://www.youtube.com/@ModernBuilds",
+      "name": "Modern Builds"
+    },
+    {
+      "url": "https://www.youtube.com/@matthewcremona",
+      "name": "Matthew Cremona"
+    }
+  ]
+}

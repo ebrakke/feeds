@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "Cooking & Food",
+  "description": "Home cooking experts, recipe creators, and food science educators",
+  "author": "Feeds",
+  "tags": ["cooking", "food", "recipes", "culinary"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/channel/UCJHA_jMfCvEnv-3kRjTCQXw",
+      "name": "Babish Culinary Universe"
+    },
+    {
+      "url": "https://www.youtube.com/@JoshuaWeissman",
+      "name": "Joshua Weissman"
+    },
+    {
+      "url": "https://www.youtube.com/@aragusea",
+      "name": "Adam Ragusea"
+    },
+    {
+      "url": "https://www.youtube.com/@JKenjiLopezAlt",
+      "name": "J. Kenji López-Alt"
+    },
+    {
+      "url": "https://www.youtube.com/@foodwishes",
+      "name": "Food Wishes"
+    },
+    {
+      "url": "https://www.youtube.com/@SamTheCookingGuy",
+      "name": "Sam The Cooking Guy"
+    },
+    {
+      "url": "https://www.youtube.com/@ProHomeCooks",
+      "name": "Pro Home Cooks"
+    },
+    {
+      "url": "https://www.youtube.com/@EthanChlebowski",
+      "name": "Ethan Chlebowski"
+    },
+    {
+      "url": "https://www.youtube.com/@NotAnotherCookingShow",
+      "name": "Not Another Cooking Show"
+    },
+    {
+      "url": "https://www.youtube.com/@ChefJeanPierre",
+      "name": "Chef Jean-Pierre"
+    }
+  ]
+}

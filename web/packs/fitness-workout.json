@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "Fitness & Workout",
+  "description": "Evidence-based fitness, workout routines, and exercise science",
+  "author": "Feeds",
+  "tags": ["fitness", "workout", "exercise", "health"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/@JeffNippard",
+      "name": "Jeff Nippard"
+    },
+    {
+      "url": "https://www.youtube.com/@ataborwork",
+      "name": "ATHLEAN-X"
+    },
+    {
+      "url": "https://www.youtube.com/@THENX",
+      "name": "THENX"
+    },
+    {
+      "url": "https://www.youtube.com/@JeremyEthier",
+      "name": "Jeremy Ethier"
+    },
+    {
+      "url": "https://www.youtube.com/@RenaissancePeriodization",
+      "name": "Renaissance Periodization"
+    },
+    {
+      "url": "https://www.youtube.com/@CalisthenicMovement",
+      "name": "Calisthenic Movement"
+    },
+    {
+      "url": "https://www.youtube.com/@NatachaOceane",
+      "name": "Natacha Océane"
+    },
+    {
+      "url": "https://www.youtube.com/@sydneycummings",
+      "name": "Sydney Cummings"
+    },
+    {
+      "url": "https://www.youtube.com/@HybridCalisthenics",
+      "name": "Hybrid Calisthenics"
+    },
+    {
+      "url": "https://www.youtube.com/@MindPumpTV",
+      "name": "Mind Pump TV"
+    }
+  ]
+}

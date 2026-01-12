@@ -2,17 +2,46 @@
 {{template "header" .}}
 
 <div class="max-w-4xl mx-auto">
-    <div class="aspect-video bg-black rounded-lg overflow-hidden mb-4">
-        <video id="player" class="w-full h-full" controls autoplay playsinline>
-            <source src="{{.StreamURL}}" type="video/mp4">
+    <!-- Video container with loading state -->
+    <div id="video-container" class="aspect-video bg-black rounded-lg overflow-hidden mb-4 relative">
+        <!-- Loading state -->
+        <div id="video-loading" class="absolute inset-0 flex items-center justify-center bg-gray-900">
+            <div class="text-center">
+                <svg class="animate-spin h-10 w-10 text-blue-500 mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-gray-400 text-sm">Loading video...</p>
+            </div>
+        </div>
+        <!-- Error state (hidden by default) -->
+        <div id="video-error" class="hidden absolute inset-0 flex items-center justify-center bg-gray-900">
+            <div class="text-center px-4">
+                <svg class="h-10 w-10 text-red-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <p class="text-red-400 mb-2">Failed to load video</p>
+                <a href="https://www.youtube.com/watch?v={{.VideoID}}" target="_blank" rel="noopener" class="text-blue-400 hover:text-blue-300 text-sm">
+                    Watch on YouTube instead
+                </a>
+            </div>
+        </div>
+        <!-- Video element (hidden until loaded) -->
+        <video id="player" class="w-full h-full hidden" controls playsinline>
             Your browser does not support the video tag.
         </video>
     </div>
 
-    <h1 class="text-lg font-bold mb-2">{{.Video.Title}}</h1>
+    <!-- Title (loading state) -->
+    <h1 id="video-title" class="text-lg font-bold mb-2">
+        <span class="inline-block bg-gray-700 rounded h-6 w-64 animate-pulse"></span>
+    </h1>
 
     <div class="flex items-center justify-between mb-4">
-        <p class="text-gray-400">{{.Video.Channel}}</p>
+        <!-- Channel name (loading state) -->
+        <p id="video-channel" class="text-gray-400">
+            <span class="inline-block bg-gray-700 rounded h-4 w-32 animate-pulse"></span>
+        </p>
 
         <div id="subscribe-container">
         {{if .Subscribed}}
@@ -21,69 +50,36 @@
             {{else if eq .Subscribed "already"}}
             <span class="text-gray-400 text-sm">Already subscribed</span>
             {{end}}
-        {{else if .ExistingChannel}}
-            <span class="text-gray-500 text-sm">Subscribed</span>
-        {{else if and .ChannelURL .Feeds}}
-            <form id="subscribe-form" class="flex items-center gap-2">
-                <input type="hidden" name="channel_url" value="{{.ChannelURL}}">
-                <input type="hidden" name="channel_name" value="{{.Video.Channel}}">
-                <select name="feed_id" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
-                    <option value="" disabled selected>Add to...</option>
-                    {{range .Feeds}}
-                    <option value="{{.ID}}">{{.Name}}</option>
-                    {{end}}
-                    <option value="0">+ Uncategorized</option>
-                </select>
-                <button type="submit" id="subscribe-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-1">
-                    <svg id="subscribe-spinner" class="hidden animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span id="subscribe-text">Subscribe</span>
-                </button>
-            </form>
-            <script>
-            document.getElementById('subscribe-form').addEventListener('submit', function(e) {
-                e.preventDefault();
-                const form = this;
-                const btn = document.getElementById('subscribe-btn');
-                const spinner = document.getElementById('subscribe-spinner');
-                const text = document.getElementById('subscribe-text');
-                const container = document.getElementById('subscribe-container');
-
-                const feedId = form.feed_id.value;
-                if (!feedId) return;
-
-                spinner.classList.remove('hidden');
-                text.textContent = 'Subscribing...';
-                btn.disabled = true;
-
-                const formData = new FormData(form);
-                fetch('/watch/{{.Video.ID}}/subscribe', {
-                    method: 'POST',
-                    body: formData
-                }).then(function(response) {
-                    if (response.ok || response.redirected) {
-                        container.innerHTML = '<span class="text-green-400 text-sm">Subscribed!</span>';
-                    } else {
-                        spinner.classList.add('hidden');
-                        text.textContent = 'Subscribe';
-                        btn.disabled = false;
-                    }
-                }).catch(function() {
-                    spinner.classList.add('hidden');
-                    text.textContent = 'Subscribe';
-                    btn.disabled = false;
-                });
-            });
-            </script>
-        {{else if not .Feeds}}
+        {{else if .Feeds}}
+            <!-- Subscribe form will be shown after video info loads -->
+            <div id="subscribe-placeholder" class="hidden">
+                <form id="subscribe-form" class="flex items-center gap-2">
+                    <input type="hidden" name="channel_url" id="channel-url-input" value="">
+                    <input type="hidden" name="channel_name" id="channel-name-input" value="">
+                    <select name="feed_id" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
+                        <option value="" disabled selected>Add to...</option>
+                        {{range .Feeds}}
+                        <option value="{{.ID}}">{{.Name}}</option>
+                        {{end}}
+                        <option value="0">+ Uncategorized</option>
+                    </select>
+                    <button type="submit" id="subscribe-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-1">
+                        <svg id="subscribe-spinner" class="hidden animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span id="subscribe-text">Subscribe</span>
+                    </button>
+                </form>
+            </div>
+            <span id="already-subscribed" class="hidden text-gray-500 text-sm">Subscribed</span>
+        {{else}}
             <a href="/import" class="text-sm text-blue-400 hover:text-blue-300">Create a feed to subscribe</a>
         {{end}}
         </div>
     </div>
 
-    <a href="https://www.youtube.com/watch?v={{.Video.ID}}" target="_blank" rel="noopener"
+    <a href="https://www.youtube.com/watch?v={{.VideoID}}" target="_blank" rel="noopener"
        class="text-sm text-gray-500 hover:text-blue-400">
         Watch on YouTube
     </a>
@@ -91,18 +87,142 @@
 
 <script>
 (function() {
-    const player = document.getElementById('player');
-    const videoId = '{{.Video.ID}}';
+    const videoId = '{{.VideoID}}';
     const startTime = {{.StartTime}};
     let lastSavedTime = 0;
+    let player = null;
 
-    // Resume from saved position
-    if (startTime > 0) {
-        player.currentTime = startTime;
-    }
+    // Pause video when navigating away (fixes back button issue)
+    window.addEventListener('pagehide', function() {
+        if (player) {
+            player.pause();
+        }
+    });
 
-    // Save progress periodically (every 5 seconds of playback change)
+    // Also handle visibility change (for tab switches)
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden && player) {
+            // Save progress when tab hidden
+            saveProgress();
+        }
+    });
+
+    // Fetch video info async
+    fetch('/watch/' + videoId + '/info')
+        .then(function(response) {
+            if (!response.ok) throw new Error('Failed to load');
+            return response.json();
+        })
+        .then(function(data) {
+            if (data.error) throw new Error(data.error);
+
+            // Update title
+            document.getElementById('video-title').textContent = data.title;
+            document.title = data.title + ' - Feeds';
+
+            // Update channel
+            document.getElementById('video-channel').textContent = data.channel;
+
+            // Set up video player
+            player = document.getElementById('player');
+            player.src = data.streamURL;
+
+            // Hide loading, show video
+            document.getElementById('video-loading').classList.add('hidden');
+            player.classList.remove('hidden');
+
+            // Resume from saved position
+            if (startTime > 0) {
+                player.currentTime = startTime;
+            }
+
+            // Autoplay
+            player.play().catch(function() {
+                // Autoplay blocked, that's fine
+            });
+
+            // Set up subscribe form
+            if (data.channelURL) {
+                const urlInput = document.getElementById('channel-url-input');
+                const nameInput = document.getElementById('channel-name-input');
+                if (urlInput && nameInput) {
+                    urlInput.value = data.channelURL;
+                    nameInput.value = data.channel;
+                }
+
+                if (data.existingChannelID > 0) {
+                    // Already subscribed
+                    const alreadySub = document.getElementById('already-subscribed');
+                    if (alreadySub) alreadySub.classList.remove('hidden');
+                } else {
+                    // Show subscribe form
+                    const placeholder = document.getElementById('subscribe-placeholder');
+                    if (placeholder) placeholder.classList.remove('hidden');
+                }
+            }
+
+            // Set up subscribe form handler
+            const subscribeForm = document.getElementById('subscribe-form');
+            if (subscribeForm) {
+                subscribeForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const form = this;
+                    const btn = document.getElementById('subscribe-btn');
+                    const spinner = document.getElementById('subscribe-spinner');
+                    const text = document.getElementById('subscribe-text');
+                    const container = document.getElementById('subscribe-container');
+
+                    const feedId = form.feed_id.value;
+                    if (!feedId) return;
+
+                    spinner.classList.remove('hidden');
+                    text.textContent = 'Subscribing...';
+                    btn.disabled = true;
+
+                    const formData = new FormData(form);
+                    fetch('/watch/' + videoId + '/subscribe', {
+                        method: 'POST',
+                        body: formData
+                    }).then(function(response) {
+                        if (response.ok || response.redirected) {
+                            container.innerHTML = '<span class="text-green-400 text-sm">Subscribed!</span>';
+                        } else {
+                            spinner.classList.add('hidden');
+                            text.textContent = 'Subscribe';
+                            btn.disabled = false;
+                        }
+                    }).catch(function() {
+                        spinner.classList.add('hidden');
+                        text.textContent = 'Subscribe';
+                        btn.disabled = false;
+                    });
+                });
+            }
+
+            // Set up progress saving
+            player.addEventListener('timeupdate', saveProgress);
+            player.addEventListener('pause', function() {
+                const currentTime = Math.floor(player.currentTime);
+                const duration = Math.floor(player.duration) || 0;
+                if (duration > 0) {
+                    fetch('/watch/' + videoId + '/progress', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({progress: currentTime, duration: duration})
+                    }).catch(function() {});
+                }
+            });
+        })
+        .catch(function(err) {
+            console.error('Failed to load video:', err);
+            document.getElementById('video-loading').classList.add('hidden');
+            document.getElementById('video-error').classList.remove('hidden');
+            document.getElementById('video-title').textContent = 'Failed to load';
+            document.getElementById('video-channel').textContent = '';
+        });
+
     function saveProgress() {
+        if (!player) return;
         const currentTime = Math.floor(player.currentTime);
         const duration = Math.floor(player.duration) || 0;
 
@@ -117,24 +237,9 @@
         }
     }
 
-    // Save on timeupdate (fires frequently during playback)
-    player.addEventListener('timeupdate', saveProgress);
-
-    // Save when pausing
-    player.addEventListener('pause', function() {
-        const currentTime = Math.floor(player.currentTime);
-        const duration = Math.floor(player.duration) || 0;
-        if (duration > 0) {
-            fetch('/watch/' + videoId + '/progress', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({progress: currentTime, duration: duration})
-            }).catch(function() {});
-        }
-    });
-
     // Save when leaving page
     window.addEventListener('beforeunload', function() {
+        if (!player) return;
         const currentTime = Math.floor(player.currentTime);
         const duration = Math.floor(player.duration) || 0;
         if (duration > 0) {

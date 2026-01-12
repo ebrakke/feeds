@@ -167,9 +167,16 @@ func FetchLatestVideos(channelURL string, limit int) ([]models.Video, error) {
 
 // FetchLatestVideosFiltered fetches latest videos with optional shorts filtering
 func FetchLatestVideosFiltered(channelURL string, limit int, checkShortsURL bool) ([]models.Video, error) {
+	// First try direct channel ID extraction
 	channelID := ExtractChannelID(channelURL)
+
+	// If that fails, resolve the URL (handles @handles, /c/, /user/, etc.)
 	if channelID == "" {
-		return nil, fmt.Errorf("could not extract channel ID from URL: %s", channelURL)
+		info, err := ResolveChannelURL(channelURL)
+		if err != nil {
+			return nil, fmt.Errorf("could not resolve channel URL %s: %w", channelURL, err)
+		}
+		channelID = info.ID
 	}
 
 	rssURL := fmt.Sprintf("https://www.youtube.com/feeds/videos.xml?channel_id=%s", channelID)

@@ -79,6 +79,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /channels/{id}", s.handleChannelPage)
 	mux.HandleFunc("GET /download/{id}", s.handleDownload)
 	mux.HandleFunc("GET /watch/{id}", s.handleWatchPage)
+	mux.HandleFunc("GET /watch/{id}/info", s.handleWatchInfo)
 	mux.HandleFunc("GET /all", s.handleAllRecent)
 	mux.HandleFunc("GET /history", s.handleHistory)
 	mux.HandleFunc("POST /watch/{id}/progress", s.handleUpdateWatchProgress)
@@ -621,21 +622,6 @@ func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleWatchPage(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
-
-	// Get video info
-	info, err := s.ytdlp.GetVideoInfo(videoURL)
-	if err != nil {
-		http.Error(w, "Failed to get video info: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Get stream URL
-	streamURL, err := s.ytdlp.GetStreamURL(videoURL)
-	if err != nil {
-		http.Error(w, "Failed to get stream URL: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
 
 	// Get watch progress for resume functionality
 	var startTime int
@@ -649,6 +635,43 @@ func (s *Server) handleWatchPage(w http.ResponseWriter, r *http.Request) {
 	// Get all feeds for subscribe dropdown
 	feeds, _ := s.db.GetFeeds()
 
+	// Check query params for subscription status
+	subscribed := r.URL.Query().Get("subscribed")
+
+	// Render page immediately - video info will be fetched async via /watch/{id}/info
+	data := map[string]any{
+		"Title":      "Loading...",
+		"VideoID":    videoID,
+		"StartTime":  startTime,
+		"Feeds":      feeds,
+		"Subscribed": subscribed,
+	}
+	s.templates.ExecuteTemplate(w, "watch", data)
+}
+
+// handleWatchInfo returns video info and stream URL as JSON (called async from watch page)
+func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
+
+	// Get video info
+	info, err := s.ytdlp.GetVideoInfo(videoURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to get video info"})
+		return
+	}
+
+	// Get stream URL
+	streamURL, err := s.ytdlp.GetStreamURL(videoURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to get stream URL"})
+		return
+	}
+
 	// Resolve channel URL to canonical form for subscription
 	channelURL := ""
 	if info.ChannelURL != "" {
@@ -658,25 +681,21 @@ func (s *Server) handleWatchPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if already subscribed
-	var existingChannel *models.Channel
+	var existingChannelID int64
 	if channelURL != "" {
-		existingChannel, _ = s.db.GetChannelByURL(channelURL)
+		if existing, _ := s.db.GetChannelByURL(channelURL); existing != nil {
+			existingChannelID = existing.ID
+		}
 	}
 
-	// Check query params for subscription status
-	subscribed := r.URL.Query().Get("subscribed")
-
-	data := map[string]any{
-		"Title":           info.Title,
-		"Video":           info,
-		"StreamURL":       streamURL,
-		"StartTime":       startTime,
-		"Feeds":           feeds,
-		"ChannelURL":      channelURL,
-		"ExistingChannel": existingChannel,
-		"Subscribed":      subscribed,
-	}
-	s.templates.ExecuteTemplate(w, "watch", data)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"title":             info.Title,
+		"channel":           info.Channel,
+		"streamURL":         streamURL,
+		"channelURL":        channelURL,
+		"existingChannelID": existingChannelID,
+	})
 }
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {

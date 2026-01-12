@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "Tech Reviewers",
+  "description": "Top technology reviewers covering gadgets, smartphones, laptops, and consumer electronics",
+  "author": "Feeds",
+  "tags": ["tech", "reviews", "gadgets", "technology"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/channel/UCBJycsmduvYEL83R_U4JriQ",
+      "name": "MKBHD"
+    },
+    {
+      "url": "https://www.youtube.com/channel/UCXuqSBlHAE6Xw-yeJA0Tunw",
+      "name": "Linus Tech Tips"
+    },
+    {
+      "url": "https://www.youtube.com/@Mrwhosetheboss",
+      "name": "Mrwhosetheboss"
+    },
+    {
+      "url": "https://www.youtube.com/@UnboxTherapy",
+      "name": "Unbox Therapy"
+    },
+    {
+      "url": "https://www.youtube.com/@austin",
+      "name": "Austin Evans"
+    },
+    {
+      "url": "https://www.youtube.com/@TheVerge",
+      "name": "The Verge"
+    },
+    {
+      "url": "https://www.youtube.com/@UrAvgConsumer",
+      "name": "UrAvgConsumer"
+    },
+    {
+      "url": "https://www.youtube.com/@dave2d",
+      "name": "Dave2D"
+    },
+    {
+      "url": "https://www.youtube.com/@JerryRigEverything",
+      "name": "JerryRigEverything"
+    },
+    {
+      "url": "https://www.youtube.com/@ijustine",
+      "name": "iJustine"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "name": "Travel & Adventure",
+  "description": "Raw, immersive travel vloggers exploring off-the-beaten-path destinations worldwide",
+  "author": "Feeds",
+  "tags": ["travel", "adventure", "vlog", "exploration"],
+  "channels": [
+    {
+      "url": "https://www.youtube.com/channel/UCxDZs_ltFFvn0FDHT6kmoXA",
+      "name": "Bald and Bankrupt"
+    },
+    {
+      "url": "https://www.youtube.com/@PeterSantenello",
+      "name": "Peter Santenello"
+    },
+    {
+      "url": "https://www.youtube.com/@kurtcaz",
+      "name": "Kurt Caz"
+    },
+    {
+      "url": "https://www.youtube.com/@haraldbaldr",
+      "name": "Harald Baldr"
+    },
+    {
+      "url": "https://www.youtube.com/@GabrielTraveler",
+      "name": "Gabriel Traveler"
+    },
+    {
+      "url": "https://www.youtube.com/@indigo.traveller",
+      "name": "Indigo Traveller"
+    },
+    {
+      "url": "https://www.youtube.com/@DalePhilip",
+      "name": "Dale Philip"
+    },
+    {
+      "url": "https://www.youtube.com/@YesTheory",
+      "name": "Yes Theory"
+    }
+  ]
+}
