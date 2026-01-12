@@ -1,22 +1,35 @@
 {{define "feed"}}
 {{template "header" .}}
 
-<div class="flex items-center justify-between mb-4">
+<div class="flex items-center justify-between mb-2">
     <h2 class="text-xl font-bold">{{.Feed.Name}}</h2>
     <div class="flex gap-2">
-        <form method="POST" action="/feeds/{{.Feed.ID}}/refresh" class="inline">
-            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded text-sm">
-                Refresh
-            </button>
-        </form>
-        <a href="/feeds/{{.Feed.ID}}/export" class="bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded text-sm inline-block">
+        <button id="refresh-btn" onclick="startRefresh({{.Feed.ID}})"
+                class="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded text-sm inline-flex items-center gap-2">
+            <svg id="refresh-spinner" class="hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span id="refresh-text">Refresh</span>
+        </button>
+        <a href="/feeds/{{.Feed.ID}}/export" class="bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded text-sm inline-block"
+           hx-boost="false">
             Export
         </a>
-        <form method="POST" action="/feeds/{{.Feed.ID}}/delete" class="inline" onsubmit="return confirm('Delete this feed?')">
-            <button type="submit" class="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded text-sm">
-                Delete
-            </button>
-        </form>
+        <button hx-post="/feeds/{{.Feed.ID}}/delete"
+                hx-confirm="Delete this feed and all its channels?"
+                class="bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded text-sm">
+            Delete
+        </button>
+    </div>
+</div>
+<div id="refresh-status" class="hidden mb-4 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200">
+    <div class="flex items-center justify-center gap-3">
+        <svg class="animate-spin h-5 w-5 text-blue-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span id="refresh-status-text" class="font-medium"></span>
     </div>
 </div>
 
@@ -38,7 +51,11 @@
     <div class="flex gap-2">
         <input type="text" name="url" placeholder="Paste YouTube channel URL or @handle"
                class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 focus:outline-none focus:border-blue-500">
-        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded inline-flex items-center gap-2">
+            <svg class="htmx-indicator animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
             Add Channel
         </button>
     </div>
@@ -50,37 +67,39 @@
 </form>
 
 <!-- Channels List -->
-<div class="space-y-2">
+<div id="channels-list" class="space-y-2">
     {{$feed := .Feed}}
     {{$allFeeds := .AllFeeds}}
     {{range .Channels}}
-    <div class="bg-gray-800 rounded-lg p-3 flex items-center justify-between gap-3">
+    <div id="channel-{{.ID}}" class="bg-gray-800 rounded-lg p-3 flex items-center justify-between gap-3">
         <a href="/channels/{{.ID}}" class="flex-1 hover:text-blue-400">
             {{.Name}}
         </a>
         <div class="flex items-center gap-2">
             <!-- Move dropdown -->
-            <form method="POST" action="/channels/{{.ID}}/move" class="inline">
-                <select name="feed_id" onchange="this.form.submit()"
-                        class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm cursor-pointer">
-                    <option value="">Move to...</option>
-                    {{$currentID := .FeedID}}
-                    {{range $allFeeds}}
-                    {{if ne .ID $currentID}}
-                    <option value="{{.ID}}">{{.Name}}</option>
-                    {{end}}
-                    {{end}}
-                </select>
-            </form>
+            <select name="feed_id"
+                    hx-post="/channels/{{.ID}}/move"
+                    hx-target="#channel-{{.ID}}"
+                    hx-swap="delete"
+                    class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm cursor-pointer">
+                <option value="">Move to...</option>
+                {{$currentID := .FeedID}}
+                {{range $allFeeds}}
+                {{if ne .ID $currentID}}
+                <option value="{{.ID}}">{{.Name}}</option>
+                {{end}}
+                {{end}}
+            </select>
             <!-- Delete button -->
-            <form method="POST" action="/channels/{{.ID}}/delete" class="inline"
-                  onsubmit="return confirm('Remove this channel from the feed?')">
-                <button type="submit" class="text-gray-500 hover:text-red-500 p-1">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                    </svg>
-                </button>
-            </form>
+            <button hx-post="/channels/{{.ID}}/delete"
+                    hx-target="#channel-{{.ID}}"
+                    hx-swap="delete"
+                    hx-confirm="Remove this channel from the feed?"
+                    class="text-gray-500 hover:text-red-500 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+            </button>
         </div>
     </div>
     {{else}}
@@ -89,8 +108,67 @@
 </div>
 {{else}}
 <!-- Videos Grid -->
+<div id="video-grid">
 {{template "video_grid" .}}
+</div>
 {{end}}
+
+<script>
+function startRefresh(feedId) {
+    const btn = document.getElementById('refresh-btn');
+    const spinner = document.getElementById('refresh-spinner');
+    const text = document.getElementById('refresh-text');
+    const statusBar = document.getElementById('refresh-status');
+    const statusText = document.getElementById('refresh-status-text');
+
+    btn.disabled = true;
+    btn.classList.add('opacity-75');
+    spinner.classList.remove('hidden');
+    text.textContent = 'Refreshing...';
+    statusBar.classList.remove('hidden');
+    statusText.textContent = 'Starting...';
+
+    let completed = false;
+    const source = new EventSource('/feeds/' + feedId + '/refresh/stream');
+
+    source.addEventListener('progress', function(e) {
+        const data = JSON.parse(e.data);
+        statusText.textContent = 'Fetching ' + data.channel + ' (' + data.current + ' of ' + data.total + ')';
+    });
+
+    source.addEventListener('complete', function(e) {
+        completed = true;
+        const data = JSON.parse(e.data);
+        statusText.textContent = 'Done! Found ' + data.totalVideos + ' videos';
+        source.close();
+
+        spinner.classList.add('hidden');
+        text.textContent = 'Refresh';
+        btn.disabled = false;
+        btn.classList.remove('opacity-75');
+
+        // Reload page to show new videos
+        setTimeout(function() {
+            window.location.reload();
+        }, 800);
+    });
+
+    source.onerror = function(e) {
+        // Only show error if we haven't completed successfully
+        // EventSource fires onerror when connection closes, even after success
+        if (!completed) {
+            statusText.textContent = 'Error refreshing feed';
+            statusBar.classList.remove('bg-gray-800');
+            statusBar.classList.add('bg-red-900/50');
+        }
+        source.close();
+        spinner.classList.add('hidden');
+        text.textContent = 'Refresh';
+        btn.disabled = false;
+        btn.classList.remove('opacity-75');
+    };
+}
+</script>
 
 {{template "footer" .}}
 {{end}}

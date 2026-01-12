@@ -8,14 +8,37 @@
     <div class="mb-4 p-3 bg-red-900 text-red-200 rounded">{{.Error}}</div>
     {{end}}
 
+    <!-- Import from File -->
+    <form method="POST" action="/import/file" enctype="multipart/form-data" class="mb-6 import-form">
+        <label class="block text-sm font-medium mb-2">Import from File</label>
+        <div class="flex gap-2">
+            <input type="file" name="file" accept=".json,application/json" required
+                   class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-3 focus:outline-none focus:border-blue-500 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:bg-gray-600 file:text-white file:cursor-pointer">
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium inline-flex items-center gap-2">
+                <svg class="import-spinner hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="btn-text">Import</span>
+            </button>
+        </div>
+        <p class="text-gray-400 text-sm mt-2">Supports Feeds format and NewPipe JSON</p>
+    </form>
+
+    <div class="text-center text-gray-500 mb-4">or import from URL</div>
+
     <!-- Import from URL -->
-    <form method="POST" action="/import/url" class="mb-6">
+    <form method="POST" action="/import/url" class="mb-6 import-form">
         <label class="block text-sm font-medium mb-2">Import from URL</label>
         <div class="flex gap-2">
             <input type="url" name="url" required placeholder="https://example.com/feed.json"
                    class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-3 focus:outline-none focus:border-blue-500">
-            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium">
-                Import
+            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium inline-flex items-center gap-2">
+                <svg class="import-spinner hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="btn-text">Import</span>
             </button>
         </div>
         <p class="text-gray-400 text-sm mt-2">Supports Feeds format and NewPipe JSON</p>
@@ -30,15 +53,19 @@
     </div>
 
     <!-- Simple import with name -->
-    <form method="POST" action="/import" class="mb-4">
+    <form method="POST" action="/import" class="mb-4 import-form">
         <input type="hidden" name="json" id="simple-json">
         <div class="mb-4">
             <label class="block text-sm font-medium mb-2">Feed Name</label>
             <input type="text" name="name" required
                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-3 focus:outline-none focus:border-blue-500">
         </div>
-        <button type="submit" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 px-4 rounded font-medium">
-            Import as Single Feed
+        <button type="submit" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 px-4 rounded font-medium inline-flex items-center justify-center gap-2">
+            <svg class="import-spinner hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="btn-text">Import as Single Feed</span>
         </button>
     </form>
 
@@ -46,10 +73,14 @@
 
     <!-- AI organize -->
     {{if .AIEnabled}}
-    <form method="POST" action="/import/organize">
+    <form method="POST" action="/import/organize" class="import-form">
         <input type="hidden" name="json" id="organize-json">
-        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium">
-            Organize with AI
+        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded font-medium inline-flex items-center justify-center gap-2">
+            <svg class="import-spinner hidden animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="btn-text">Organize with AI</span>
         </button>
         <p class="text-gray-400 text-sm mt-2 text-center">Let AI suggest groups based on channel topics</p>
     </form>
@@ -63,14 +94,22 @@
 </div>
 
 <script>
-// Sync JSON textarea to hidden inputs on submit
-document.querySelectorAll('form').forEach(form => {
+// Sync JSON textarea to hidden inputs and show loading state on submit
+document.querySelectorAll('.import-form').forEach(form => {
     form.addEventListener('submit', function() {
         const json = document.getElementById('json-input').value;
         const hiddenJson = this.querySelector('input[name="json"]');
         if (hiddenJson) {
             hiddenJson.value = json;
         }
+
+        // Show loading spinner
+        const spinner = this.querySelector('.import-spinner');
+        const btnText = this.querySelector('.btn-text');
+        const btn = this.querySelector('button[type="submit"]');
+        if (spinner) spinner.classList.remove('hidden');
+        if (btnText) btnText.textContent = 'Importing...';
+        if (btn) btn.disabled = true;
     });
 });
 </script>

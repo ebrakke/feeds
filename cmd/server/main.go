@@ -59,13 +59,17 @@ var (
 	BuildTime = "unknown"
 )
 
-// corsMiddleware adds CORS headers to all responses
+// corsMiddleware adds CORS and cache-control headers to all responses
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Expose-Headers", "HX-Redirect")
+		// Prevent caching by proxies/VPNs
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -122,7 +126,7 @@ func main() {
 		log.Println("No OPENAI_API_KEY set - AI grouping disabled")
 	}
 
-	server, err := api.NewServer(database, yt, aiClient, web.Templates)
+	server, err := api.NewServer(database, yt, aiClient, web.Templates, web.Packs)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

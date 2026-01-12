@@ -14,6 +14,7 @@
     <div class="flex items-center justify-between mb-4">
         <p class="text-gray-400">{{.Video.Channel}}</p>
 
+        <div id="subscribe-container">
         {{if .Subscribed}}
             {{if eq .Subscribed "true"}}
             <span class="text-green-400 text-sm">Subscribed!</span>
@@ -23,7 +24,7 @@
         {{else if .ExistingChannel}}
             <span class="text-gray-500 text-sm">Subscribed</span>
         {{else if and .ChannelURL .Feeds}}
-            <form action="/watch/{{.Video.ID}}/subscribe" method="POST" class="flex items-center gap-2">
+            <form id="subscribe-form" class="flex items-center gap-2">
                 <input type="hidden" name="channel_url" value="{{.ChannelURL}}">
                 <input type="hidden" name="channel_name" value="{{.Video.Channel}}">
                 <select name="feed_id" class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm">
@@ -33,13 +34,53 @@
                     {{end}}
                     <option value="0">+ Uncategorized</option>
                 </select>
-                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">
-                    Subscribe
+                <button type="submit" id="subscribe-btn" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-1">
+                    <svg id="subscribe-spinner" class="hidden animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span id="subscribe-text">Subscribe</span>
                 </button>
             </form>
+            <script>
+            document.getElementById('subscribe-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const form = this;
+                const btn = document.getElementById('subscribe-btn');
+                const spinner = document.getElementById('subscribe-spinner');
+                const text = document.getElementById('subscribe-text');
+                const container = document.getElementById('subscribe-container');
+
+                const feedId = form.feed_id.value;
+                if (!feedId) return;
+
+                spinner.classList.remove('hidden');
+                text.textContent = 'Subscribing...';
+                btn.disabled = true;
+
+                const formData = new FormData(form);
+                fetch('/watch/{{.Video.ID}}/subscribe', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(response) {
+                    if (response.ok || response.redirected) {
+                        container.innerHTML = '<span class="text-green-400 text-sm">Subscribed!</span>';
+                    } else {
+                        spinner.classList.add('hidden');
+                        text.textContent = 'Subscribe';
+                        btn.disabled = false;
+                    }
+                }).catch(function() {
+                    spinner.classList.add('hidden');
+                    text.textContent = 'Subscribe';
+                    btn.disabled = false;
+                });
+            });
+            </script>
         {{else if not .Feeds}}
             <a href="/import" class="text-sm text-blue-400 hover:text-blue-300">Create a feed to subscribe</a>
         {{end}}
+        </div>
     </div>
 
     <a href="https://www.youtube.com/watch?v={{.Video.ID}}" target="_blank" rel="noopener"

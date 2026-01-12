@@ -12,7 +12,7 @@
             {{if gt $watchPercent 90}}{{$isWatched = true}}{{end}}
         {{end}}
     {{end}}
-    <div class="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition group relative{{if $isWatched}} opacity-60{{end}}">
+    <div id="video-{{.ID}}" class="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition group relative{{if $isWatched}} opacity-60{{end}}" data-watched="{{$isWatched}}">
         <a href="/watch/{{.ID}}">
             <div class="relative aspect-video bg-gray-700">
                 {{if .Thumbnail}}
@@ -23,10 +23,9 @@
                     {{if gt .Duration 3600}}{{printf "%d:%02d:%02d" (div .Duration 3600) (mod (div .Duration 60) 60) (mod .Duration 60)}}{{else}}{{printf "%d:%02d" (div .Duration 60) (mod .Duration 60)}}{{end}}
                 </span>
                 {{end}}
-                {{if $isWatched}}
-                <span class="absolute top-2 left-2 bg-blue-600 text-xs px-1.5 py-0.5 rounded">Watched</span>
-                {{else if $progress}}
-                <div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
+                <span class="watched-badge absolute top-2 left-2 bg-blue-600 text-xs px-1.5 py-0.5 rounded{{if not $isWatched}} hidden{{end}}">Watched</span>
+                {{if and $progress (not $isWatched)}}
+                <div class="progress-bar absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
                     <div class="h-full bg-red-600" style="width: {{$watchPercent}}%"></div>
                 </div>
                 {{end}}
@@ -45,15 +44,13 @@
                 </svg>
             </button>
             <div class="hidden absolute bottom-full right-0 mb-1 bg-gray-700 rounded shadow-lg py-1 min-w-[140px] z-10">
-                {{if $isWatched}}
-                <button onclick="markUnwatched('{{.ID}}', this)" class="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-600">Mark Unwatched</button>
-                {{else}}
-                <button onclick="markWatched('{{.ID}}', this)" class="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-600">Mark Watched</button>
-                {{end}}
+                <button onclick="toggleWatched('{{.ID}}', this)" class="watch-toggle block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-600">
+                    {{if $isWatched}}Mark Unwatched{{else}}Mark Watched{{end}}
+                </button>
                 <div class="border-t border-gray-600 my-1"></div>
-                <a href="/download/{{.ID}}?quality=best" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Download Best</a>
-                <a href="/download/{{.ID}}?quality=720" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Download 720p</a>
-                <a href="/download/{{.ID}}?quality=audio" class="block px-3 py-1.5 text-sm hover:bg-gray-600">Download Audio</a>
+                <a href="/download/{{.ID}}?quality=best" class="block px-3 py-1.5 text-sm hover:bg-gray-600" hx-boost="false">Download Best</a>
+                <a href="/download/{{.ID}}?quality=720" class="block px-3 py-1.5 text-sm hover:bg-gray-600" hx-boost="false">Download 720p</a>
+                <a href="/download/{{.ID}}?quality=audio" class="block px-3 py-1.5 text-sm hover:bg-gray-600" hx-boost="false">Download Audio</a>
             </div>
         </div>
     </div>
@@ -67,16 +64,41 @@ document.addEventListener('click', function(e) {
     }
 });
 
-function markWatched(videoId, btn) {
-    fetch('/watch/' + videoId + '/mark-watched', {method: 'POST'})
-        .then(function() { location.reload(); })
-        .catch(function() {});
-}
+function toggleWatched(videoId, btn) {
+    const card = document.getElementById('video-' + videoId);
+    const isWatched = card.dataset.watched === 'true';
+    const endpoint = isWatched ? '/watch/' + videoId + '/mark-unwatched' : '/watch/' + videoId + '/mark-watched';
 
-function markUnwatched(videoId, btn) {
-    fetch('/watch/' + videoId + '/mark-unwatched', {method: 'POST'})
-        .then(function() { location.reload(); })
-        .catch(function() {});
+    btn.textContent = 'Saving...';
+
+    fetch(endpoint, {method: 'POST'})
+        .then(function(response) {
+            if (response.ok) {
+                // Toggle the watched state
+                const newWatched = !isWatched;
+                card.dataset.watched = newWatched.toString();
+
+                // Update visual state
+                if (newWatched) {
+                    card.classList.add('opacity-60');
+                    card.querySelector('.watched-badge').classList.remove('hidden');
+                    const progressBar = card.querySelector('.progress-bar');
+                    if (progressBar) progressBar.remove();
+                } else {
+                    card.classList.remove('opacity-60');
+                    card.querySelector('.watched-badge').classList.add('hidden');
+                }
+
+                // Update button text
+                btn.textContent = newWatched ? 'Mark Unwatched' : 'Mark Watched';
+
+                // Close the menu
+                btn.closest('.video-menu').querySelector('div').classList.add('hidden');
+            }
+        })
+        .catch(function() {
+            btn.textContent = isWatched ? 'Mark Unwatched' : 'Mark Watched';
+        });
 }
 </script>
 {{else}}

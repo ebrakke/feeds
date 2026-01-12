@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -24,9 +25,10 @@ type Server struct {
 	ytdlp     *ytdlp.YTDLP
 	ai        *ai.Client
 	templates *template.Template
+	packs     fs.FS
 }
 
-func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesFS fs.FS) (*Server, error) {
+func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesFS fs.FS, packsFS fs.FS) (*Server, error) {
 	funcMap := template.FuncMap{
 		"div": func(a, b int) int { return a / b },
 		"mod": func(a, b int) int { return a % b },
@@ -43,7 +45,19 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 		ytdlp:     yt,
 		ai:        aiClient,
 		templates: tmpl,
+		packs:     packsFS,
 	}, nil
+}
+
+// htmx helpers
+
+func isHtmxRequest(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
+}
+
+func htmxRedirect(w http.ResponseWriter, url string) {
+	w.Header().Set("HX-Redirect", url)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
@@ -52,6 +66,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /import", s.handleImportPage)
 	mux.HandleFunc("POST /import", s.handleImport)
 	mux.HandleFunc("POST /import/url", s.handleImportURL)
+	mux.HandleFunc("POST /import/file", s.handleImportFile)
 	mux.HandleFunc("POST /import/organize", s.handleOrganize)
 	mux.HandleFunc("POST /import/confirm", s.handleConfirmOrganize)
 	mux.HandleFunc("GET /feeds/{id}", s.handleFeedPage)
@@ -71,6 +86,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /watch/{id}/mark-unwatched", s.handleMarkUnwatched)
 	mux.HandleFunc("POST /open", s.handleOpenVideo)
 	mux.HandleFunc("POST /watch/{id}/subscribe", s.handleSubscribeFromWatch)
+
+	// SSE endpoints for htmx
+	mux.HandleFunc("GET /feeds/{id}/refresh/stream", s.handleRefreshFeedStream)
+
+	// Packs
+	mux.HandleFunc("GET /packs", s.handlePacksList)
+	mux.HandleFunc("GET /packs/{name}", s.handlePackFile)
 }
 
 // Page handlers
@@ -288,6 +310,96 @@ func (s *Server) handleImportURL(w http.ResponseWriter, r *http.Request) {
 	s.renderImportError(w, "Unrecognized format - expected Feeds or NewPipe JSON")
 }
 
+// handleImportFile imports a feed from an uploaded file
+func (s *Server) handleImportFile(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form with 5MB limit
+	if err := r.ParseMultipartForm(5 * 1024 * 1024); err != nil {
+		s.renderImportError(w, "Failed to parse form: "+err.Error())
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		s.renderImportError(w, "No file uploaded")
+		return
+	}
+	defer file.Close()
+
+	// Read file contents
+	body, err := io.ReadAll(io.LimitReader(file, 5*1024*1024))
+	if err != nil {
+		s.renderImportError(w, "Failed to read file: "+err.Error())
+		return
+	}
+
+	// Try to parse as Feeds format first
+	var feedExport models.FeedExport
+	if err := json.Unmarshal(body, &feedExport); err == nil && len(feedExport.Channels) > 0 {
+		// Feeds format detected
+		tags := ""
+		if len(feedExport.Tags) > 0 {
+			tags = strings.Join(feedExport.Tags, ", ")
+		}
+
+		feed, err := s.db.CreateFeedWithMetadata(feedExport.Name, feedExport.Description, feedExport.Author, tags)
+		if err != nil {
+			s.renderImportError(w, "Failed to create feed: "+err.Error())
+			return
+		}
+
+		for _, ch := range feedExport.Channels {
+			if _, err := s.db.AddChannel(feed.ID, ch.URL, ch.Name); err != nil {
+				log.Printf("Failed to add channel %s: %v", ch.URL, err)
+			}
+		}
+
+		log.Printf("Imported feed '%s' from file with %d channels (Feeds format)", feed.Name, len(feedExport.Channels))
+		http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feed.ID, 10), http.StatusSeeOther)
+		return
+	}
+
+	// Try NewPipe format
+	var newPipeExport models.NewPipeExport
+	if err := json.Unmarshal(body, &newPipeExport); err == nil && len(newPipeExport.Subscriptions) > 0 {
+		// Filter to YouTube only (service_id 0)
+		var subs []models.NewPipeSubscription
+		for _, sub := range newPipeExport.Subscriptions {
+			if sub.ServiceID == 0 {
+				subs = append(subs, sub)
+			}
+		}
+
+		if len(subs) == 0 {
+			s.renderImportError(w, "No YouTube subscriptions found in file")
+			return
+		}
+
+		// Use filename without extension as feed name
+		feedName := strings.TrimSuffix(header.Filename, ".json")
+		if feedName == "" {
+			feedName = "Imported Feed"
+		}
+
+		feed, err := s.db.CreateFeed(feedName)
+		if err != nil {
+			s.renderImportError(w, "Failed to create feed: "+err.Error())
+			return
+		}
+
+		for _, sub := range subs {
+			if _, err := s.db.AddChannel(feed.ID, sub.URL, sub.Name); err != nil {
+				log.Printf("Failed to add channel %s: %v", sub.URL, err)
+			}
+		}
+
+		log.Printf("Imported feed '%s' from file with %d channels (NewPipe format)", feed.Name, len(subs))
+		http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feed.ID, 10), http.StatusSeeOther)
+		return
+	}
+
+	s.renderImportError(w, "Unrecognized format - expected Feeds or NewPipe JSON")
+}
+
 func (s *Server) handleFeedPage(w http.ResponseWriter, r *http.Request) {
 	feedID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -405,6 +517,89 @@ func (s *Server) handleRefreshFeed(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10), http.StatusSeeOther)
 }
 
+// handleRefreshFeedStream provides SSE progress updates during feed refresh
+func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request) {
+	feedID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	channels, err := s.db.GetChannelsByFeed(feedID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // For nginx proxies
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	total := len(channels)
+	log.Printf("SSE refresh: feed %d with %d channels", feedID, total)
+
+	// Handle empty feed
+	if total == 0 {
+		complete := map[string]any{
+			"totalVideos": 0,
+			"feedID":      feedID,
+		}
+		data, _ := json.Marshal(complete)
+		fmt.Fprintf(w, "event: complete\ndata: %s\n\n", data)
+		flusher.Flush()
+		return
+	}
+
+	// Process channels sequentially to ensure ordered progress updates
+	var totalVideos int
+	for i, ch := range channels {
+		// Send progress event
+		progress := map[string]any{
+			"current": i + 1,
+			"total":   total,
+			"channel": ch.Name,
+		}
+		data, _ := json.Marshal(progress)
+		fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
+		flusher.Flush()
+
+		// Fetch videos
+		videos, err := youtube.FetchLatestVideos(ch.URL, 5)
+		if err != nil {
+			log.Printf("Failed to fetch videos for %s: %v", ch.Name, err)
+			continue
+		}
+
+		for _, v := range videos {
+			v.ChannelID = ch.ID
+			if err := s.db.UpsertVideo(&v); err != nil {
+				log.Printf("Failed to save video %s: %v", v.ID, err)
+				continue
+			}
+			totalVideos++
+		}
+	}
+
+	// Send completion event
+	complete := map[string]any{
+		"totalVideos": totalVideos,
+		"feedID":      feedID,
+	}
+	data, _ := json.Marshal(complete)
+	fmt.Fprintf(w, "event: complete\ndata: %s\n\n", data)
+	flusher.Flush()
+
+	log.Printf("SSE refresh complete: %d videos saved for feed %d", totalVideos, feedID)
+}
+
 func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
 	feedID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -417,6 +612,10 @@ func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isHtmxRequest(r) {
+		htmxRedirect(w, "/")
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -604,6 +803,11 @@ func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For htmx, return empty response - element will be removed via hx-swap="delete"
+	if isHtmxRequest(r) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10)+"?tab=channels", http.StatusSeeOther)
 }
 
@@ -639,6 +843,11 @@ func (s *Server) handleMoveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For htmx, return empty response - element will be removed via hx-swap="delete"
+	if isHtmxRequest(r) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(originalFeedID, 10)+"?tab=channels", http.StatusSeeOther)
 }
 
@@ -1032,4 +1241,48 @@ func (s *Server) handleSubscribeFromWatch(w http.ResponseWriter, r *http.Request
 
 	log.Printf("Subscribed to %s (%s) in feed %d from watch page", channelName, channelURL, feedID)
 	http.Redirect(w, r, "/watch/"+videoID+"?subscribed=true", http.StatusSeeOther)
+}
+
+// handlePacksList returns a JSON list of available packs
+func (s *Server) handlePacksList(w http.ResponseWriter, r *http.Request) {
+	entries, err := fs.ReadDir(s.packs, "packs")
+	if err != nil {
+		http.Error(w, "Failed to read packs", http.StatusInternalServerError)
+		return
+	}
+
+	type packInfo struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	}
+
+	var packs []packInfo
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			packs = append(packs, packInfo{
+				Name: strings.TrimSuffix(entry.Name(), ".json"),
+				URL:  "/packs/" + entry.Name(),
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(packs)
+}
+
+// handlePackFile serves a specific pack file
+func (s *Server) handlePackFile(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !strings.HasSuffix(name, ".json") {
+		name += ".json"
+	}
+
+	data, err := fs.ReadFile(s.packs, "packs/"+name)
+	if err != nil {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
 }

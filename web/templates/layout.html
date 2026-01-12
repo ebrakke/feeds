@@ -6,8 +6,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Feeds</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <style>
+        /* htmx loading states - using Tailwind-compatible patterns */
+        .htmx-indicator { opacity: 0; transition: opacity 150ms ease-in; }
+        .htmx-request .htmx-indicator { opacity: 1; }
+        .htmx-request.htmx-indicator { opacity: 1; }
+
+        /* Swap transitions */
+        .htmx-swapping { opacity: 0; transition: opacity 100ms ease-out; }
+        .htmx-settling { transition: opacity 100ms ease-in; }
+    </style>
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen">
+<body class="bg-gray-900 text-gray-100 min-h-screen" hx-boost="true">
     <!-- Mobile header -->
     <header class="sticky top-0 z-40 bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
         <a href="/" class="text-xl font-bold">Feeds</a>
