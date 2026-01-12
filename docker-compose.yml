@@ -1,0 +1,27 @@
+services:
+  feeds:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DB_PATH=/app/data/feeds.db
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    restart: unless-stopped
+
+  # Dev service with hot reload
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    environment:
+      - DB_PATH=/app/data/feeds.db
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    profiles:
+      - dev
