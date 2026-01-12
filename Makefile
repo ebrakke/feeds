@@ -1,5 +1,5 @@
 # feeds Makefile
-# Build a single binary with embedded templates
+# Build a single binary with embedded templates and SPA
 
 BINARY_NAME = feeds
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -10,9 +10,19 @@ LDFLAGS = -ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_T
 .PHONY: all
 all: build
 
-# Build for current platform
+# Build frontend SPA
+.PHONY: frontend
+frontend:
+	cd web/frontend && bun install && bun run build
+
+# Build for current platform (includes frontend)
 .PHONY: build
-build:
+build: frontend
+	go build $(LDFLAGS) -o $(BINARY_NAME) ./cmd/server
+
+# Build Go only (skip frontend, assumes web/dist exists)
+.PHONY: build-go
+build-go:
 	go build $(LDFLAGS) -o $(BINARY_NAME) ./cmd/server
 
 # Build for all platforms
@@ -58,6 +68,12 @@ run: build
 clean:
 	rm -f $(BINARY_NAME)
 	rm -rf dist/
+	rm -rf web/dist/
+
+# Development: run frontend dev server with API proxy
+.PHONY: dev
+dev:
+	cd web/frontend && bun run dev
 
 # Create dist directory
 dist:
@@ -72,14 +88,22 @@ install:
 help:
 	@echo "feeds build targets:"
 	@echo ""
-	@echo "  make              - Build for current platform"
-	@echo "  make build        - Build for current platform"
+	@echo "  make              - Build for current platform (frontend + Go)"
+	@echo "  make build        - Build for current platform (frontend + Go)"
+	@echo "  make build-go     - Build Go only (assumes web/dist exists)"
+	@echo "  make frontend     - Build frontend SPA only"
+	@echo "  make dev          - Run frontend dev server with API proxy"
 	@echo "  make build-all    - Build for all platforms (requires cross-compilers)"
 	@echo "  make build-darwin - Build for macOS (amd64 + arm64)"
 	@echo "  make build-linux  - Build for Linux (amd64 + arm64)"
 	@echo "  make run          - Build and run the server"
 	@echo "  make clean        - Remove build artifacts"
 	@echo "  make install      - Install to GOPATH/bin"
+	@echo ""
+	@echo "Development workflow:"
+	@echo "  1. Run 'make build-go' to build Go server"
+	@echo "  2. Run './feeds' in one terminal"
+	@echo "  3. Run 'make dev' in another for frontend hot reload"
 	@echo ""
 	@echo "Note: Cross-platform builds require appropriate C cross-compilers"
 	@echo "      for CGO (sqlite3). Native builds work out of the box."

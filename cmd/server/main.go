@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -133,6 +134,14 @@ func main() {
 
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
+
+	// Serve SPA for all non-API routes
+	spaFS, err := fs.Sub(web.SPA, "dist")
+	if err != nil {
+		log.Fatalf("Failed to get SPA filesystem: %v", err)
+	}
+	spaHandler := api.NewSPAHandler(spaFS)
+	mux.Handle("GET /", spaHandler)
 
 	log.Printf("Starting server on %s", *addr)
 	if err := http.ListenAndServe(*addr, corsMiddleware(mux)); err != nil {

@@ -7,3 +7,6 @@ var Templates embed.FS
 
 //go:embed packs/*.json
 var Packs embed.FS
+
+//go:embed dist/*
+var SPA embed.FS

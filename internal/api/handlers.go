@@ -74,39 +74,52 @@ func htmxRedirect(w http.ResponseWriter, url string) {
 }
 
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
-	// Pages
-	mux.HandleFunc("GET /{$}", s.handleIndex)
-	mux.HandleFunc("GET /import", s.handleImportPage)
-	mux.HandleFunc("POST /import", s.handleImport)
-	mux.HandleFunc("POST /import/url", s.handleImportURL)
-	mux.HandleFunc("POST /import/file", s.handleImportFile)
-	mux.HandleFunc("POST /import/organize", s.handleOrganize)
-	mux.HandleFunc("POST /import/confirm", s.handleConfirmOrganize)
-	mux.HandleFunc("GET /feeds/{id}", s.handleFeedPage)
-	mux.HandleFunc("GET /feeds/{id}/export", s.handleExportFeed)
-	mux.HandleFunc("POST /feeds/{id}/refresh", s.handleRefreshFeed)
-	mux.HandleFunc("POST /feeds/{id}/delete", s.handleDeleteFeed)
-	mux.HandleFunc("POST /channels/{id}/delete", s.handleDeleteChannel)
-	mux.HandleFunc("POST /channels/{id}/move", s.handleMoveChannel)
-	mux.HandleFunc("POST /feeds/{id}/add-channel", s.handleAddChannel)
-	mux.HandleFunc("GET /channels/{id}", s.handleChannelPage)
-	mux.HandleFunc("GET /download/{id}", s.handleDownload)
-	mux.HandleFunc("GET /watch/{id}", s.handleWatchPage)
-	mux.HandleFunc("GET /watch/{id}/info", s.handleWatchInfo)
-	mux.HandleFunc("GET /all", s.handleAllRecent)
-	mux.HandleFunc("GET /history", s.handleHistory)
-	mux.HandleFunc("POST /watch/{id}/progress", s.handleUpdateWatchProgress)
-	mux.HandleFunc("POST /watch/{id}/mark-watched", s.handleMarkWatched)
-	mux.HandleFunc("POST /watch/{id}/mark-unwatched", s.handleMarkUnwatched)
-	mux.HandleFunc("POST /open", s.handleOpenVideo)
-	mux.HandleFunc("POST /watch/{id}/subscribe", s.handleSubscribeFromWatch)
+	// Legacy template-based routes (will be removed once SPA is complete)
+	mux.HandleFunc("GET /legacy/{$}", s.handleIndex)
+	mux.HandleFunc("GET /legacy/import", s.handleImportPage)
+	mux.HandleFunc("POST /legacy/import", s.handleImport)
+	mux.HandleFunc("POST /legacy/import/url", s.handleImportURL)
+	mux.HandleFunc("POST /legacy/import/file", s.handleImportFile)
+	mux.HandleFunc("POST /legacy/import/organize", s.handleOrganize)
+	mux.HandleFunc("POST /legacy/import/confirm", s.handleConfirmOrganize)
+	mux.HandleFunc("GET /legacy/feeds/{id}", s.handleFeedPage)
+	mux.HandleFunc("GET /legacy/channels/{id}", s.handleChannelPage)
+	mux.HandleFunc("GET /legacy/watch/{id}", s.handleWatchPage)
+	mux.HandleFunc("GET /legacy/all", s.handleAllRecent)
+	mux.HandleFunc("GET /legacy/history", s.handleHistory)
 
-	// SSE endpoints for htmx
-	mux.HandleFunc("GET /feeds/{id}/refresh/stream", s.handleRefreshFeedStream)
+	// JSON API routes for SPA
+	mux.HandleFunc("GET /api/feeds", s.handleAPIGetFeeds)
+	mux.HandleFunc("POST /api/feeds", s.handleAPICreateFeed)
+	mux.HandleFunc("GET /api/feeds/{id}", s.handleAPIGetFeed)
+	mux.HandleFunc("DELETE /api/feeds/{id}", s.handleAPIDeleteFeed)
+	mux.HandleFunc("GET /api/feeds/{id}/export", s.handleExportFeed)
+	mux.HandleFunc("POST /api/feeds/{id}/refresh", s.handleAPIRefreshFeed)
+	mux.HandleFunc("GET /api/feeds/{id}/refresh/stream", s.handleRefreshFeedStream)
 
-	// Packs
-	mux.HandleFunc("GET /packs", s.handlePacksList)
-	mux.HandleFunc("GET /packs/{name}", s.handlePackFile)
+	mux.HandleFunc("GET /api/channels/{id}", s.handleAPIGetChannel)
+	mux.HandleFunc("POST /api/feeds/{id}/channels", s.handleAPIAddChannel)
+	mux.HandleFunc("DELETE /api/channels/{id}", s.handleAPIDeleteChannel)
+	mux.HandleFunc("POST /api/channels/{id}/move", s.handleAPIMoveChannel)
+
+	mux.HandleFunc("GET /api/videos/recent", s.handleAPIGetRecentVideos)
+	mux.HandleFunc("GET /api/videos/history", s.handleAPIGetHistory)
+	mux.HandleFunc("GET /api/videos/{id}/info", s.handleWatchInfo)
+	mux.HandleFunc("POST /api/videos/{id}/progress", s.handleUpdateWatchProgress)
+	mux.HandleFunc("POST /api/videos/{id}/watched", s.handleAPIMarkWatched)
+	mux.HandleFunc("DELETE /api/videos/{id}/watched", s.handleAPIMarkUnwatched)
+
+	mux.HandleFunc("GET /api/download/{id}", s.handleDownload)
+
+	mux.HandleFunc("POST /api/import/url", s.handleAPIImportURL)
+	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
+	mux.HandleFunc("POST /api/import/organize", s.handleAPIOrganize)
+	mux.HandleFunc("POST /api/import/confirm", s.handleAPIConfirmOrganize)
+
+	mux.HandleFunc("GET /api/packs", s.handlePacksList)
+	mux.HandleFunc("GET /api/packs/{name}", s.handlePackFile)
+
+	mux.HandleFunc("GET /api/config", s.handleAPIConfig)
 }
 
 // Page handlers
