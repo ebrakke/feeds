@@ -8,6 +8,7 @@ type Feed struct {
 	Description string    `json:"description,omitempty"`
 	Author      string    `json:"author,omitempty"`
 	Tags        string    `json:"tags,omitempty"` // comma-separated
+	IsSystem    bool      `json:"is_system"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

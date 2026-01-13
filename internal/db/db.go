@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -9,6 +10,8 @@ import (
 
 	"github.com/erik/feeds/internal/models"
 )
+
+var ErrSystemFeed = errors.New("cannot delete system feed")
 
 type DB struct {
 	conn *sql.DB
@@ -91,6 +94,7 @@ func (db *DB) migrate() error {
 		"ALTER TABLE feeds ADD COLUMN description TEXT DEFAULT ''",
 		"ALTER TABLE feeds ADD COLUMN author TEXT DEFAULT ''",
 		"ALTER TABLE feeds ADD COLUMN tags TEXT DEFAULT ''",
+		"ALTER TABLE feeds ADD COLUMN is_system BOOLEAN DEFAULT FALSE",
 	}
 	for _, m := range migrations {
 		// Ignore errors (column may already exist)
@@ -102,6 +106,58 @@ func (db *DB) migrate() error {
 
 func (db *DB) Close() error {
 	return db.conn.Close()
+}
+
+// Inbox operations
+
+// EnsureInboxExists creates the Inbox system feed if it doesn't exist
+func (db *DB) EnsureInboxExists() (*models.Feed, error) {
+	// Check if Inbox already exists
+	var f models.Feed
+	err := db.conn.QueryRow(
+		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE is_system = TRUE AND name = 'Inbox'",
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
+	if err == nil {
+		return &f, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Create Inbox
+	now := time.Now()
+	result, err := db.conn.Exec(
+		"INSERT INTO feeds (name, description, author, tags, is_system, created_at, updated_at) VALUES ('Inbox', '', '', '', TRUE, ?, ?)",
+		now, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.Feed{
+		ID:        id,
+		Name:      "Inbox",
+		IsSystem:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, nil
+}
+
+// GetInbox returns the Inbox system feed
+func (db *DB) GetInbox() (*models.Feed, error) {
+	var f models.Feed
+	err := db.conn.QueryRow(
+		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE is_system = TRUE AND name = 'Inbox'",
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
 }
 
 // Feed operations
@@ -137,7 +193,7 @@ func (db *DB) CreateFeedWithMetadata(name, description, author, tags string) (*m
 }
 
 func (db *DB) GetFeeds() ([]models.Feed, error) {
-	rows, err := db.conn.Query("SELECT id, name, description, author, tags, created_at, updated_at FROM feeds ORDER BY name")
+	rows, err := db.conn.Query("SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds ORDER BY is_system DESC, name")
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +202,7 @@ func (db *DB) GetFeeds() ([]models.Feed, error) {
 	var feeds []models.Feed
 	for rows.Next() {
 		var f models.Feed
-		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		feeds = append(feeds, f)
@@ -157,8 +213,8 @@ func (db *DB) GetFeeds() ([]models.Feed, error) {
 func (db *DB) GetFeed(id int64) (*models.Feed, error) {
 	var f models.Feed
 	err := db.conn.QueryRow(
-		"SELECT id, name, description, author, tags, created_at, updated_at FROM feeds WHERE id = ?", id,
-	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE id = ?", id,
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +238,16 @@ func (db *DB) UpdateFeedMetadata(id int64, name, description, author, tags strin
 }
 
 func (db *DB) DeleteFeed(id int64) error {
-	_, err := db.conn.Exec("DELETE FROM feeds WHERE id = ?", id)
+	// Check if this is a system feed
+	var isSystem bool
+	err := db.conn.QueryRow("SELECT is_system FROM feeds WHERE id = ?", id).Scan(&isSystem)
+	if err != nil {
+		return err
+	}
+	if isSystem {
+		return ErrSystemFeed
+	}
+	_, err = db.conn.Exec("DELETE FROM feeds WHERE id = ?", id)
 	return err
 }
 
@@ -190,8 +255,8 @@ func (db *DB) DeleteFeed(id int64) error {
 func (db *DB) GetOrCreateFeed(name string) (*models.Feed, error) {
 	var f models.Feed
 	err := db.conn.QueryRow(
-		"SELECT id, name, description, author, tags, created_at, updated_at FROM feeds WHERE name = ?", name,
-	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE name = ?", name,
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
 	if err == nil {
 		return &f, nil
 	}

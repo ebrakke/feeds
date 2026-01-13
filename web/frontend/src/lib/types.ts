@@ -4,6 +4,7 @@ export interface Feed {
 	description?: string;
 	author?: string;
 	tags?: string;
+	is_system?: boolean;
 	created_at: string;
 	updated_at: string;
 }

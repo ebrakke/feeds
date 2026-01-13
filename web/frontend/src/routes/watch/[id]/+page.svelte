@@ -26,6 +26,11 @@
 		// Load feeds
 		try {
 			feeds = await getFeeds();
+			// Pre-select Inbox if it exists
+			const inbox = feeds.find(f => f.is_system);
+			if (inbox) {
+				selectedFeedId = inbox.id.toString();
+			}
 		} catch (e) {
 			console.warn('Failed to load feeds:', e);
 		}
@@ -90,8 +95,7 @@
 
 		subscribing = true;
 		try {
-			const feedId = selectedFeedId === '0' ? await createUncategorizedFeed() : parseInt(selectedFeedId);
-			await addChannel(feedId, channelURL);
+			await addChannel(parseInt(selectedFeedId), channelURL);
 			subscribed = true;
 		} catch (e) {
 			console.error('Failed to subscribe:', e);
@@ -99,13 +103,6 @@
 		} finally {
 			subscribing = false;
 		}
-	}
-
-	async function createUncategorizedFeed(): Promise<number> {
-		// Create uncategorized feed if it doesn't exist
-		const { createFeed } = await import('$lib/api');
-		const feed = await createFeed('Uncategorized');
-		return feed.id;
 	}
 </script>
 
@@ -191,9 +188,10 @@
 					>
 						<option value="" disabled>Add to...</option>
 						{#each feeds as feed}
-							<option value={feed.id.toString()}>{feed.name}</option>
+							<option value={feed.id.toString()}>
+								{feed.is_system ? 'Inbox (default)' : feed.name}
+							</option>
 						{/each}
-						<option value="0">+ Uncategorized</option>
 					</select>
 					<button
 						onclick={handleSubscribe}

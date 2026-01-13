@@ -52,6 +52,11 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 		return nil, err
 	}
 
+	// Ensure Inbox system feed exists
+	if _, err := database.EnsureInboxExists(); err != nil {
+		return nil, fmt.Errorf("failed to create Inbox: %w", err)
+	}
+
 	return &Server{
 		db:          database,
 		ytdlp:       yt,
@@ -101,6 +106,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/feeds/{id}/channels", s.handleAPIAddChannel)
 	mux.HandleFunc("DELETE /api/channels/{id}", s.handleAPIDeleteChannel)
 	mux.HandleFunc("POST /api/channels/{id}/move", s.handleAPIMoveChannel)
+	mux.HandleFunc("POST /api/channels/{id}/refresh", s.handleAPIRefreshChannel)
 
 	mux.HandleFunc("GET /api/videos/recent", s.handleAPIGetRecentVideos)
 	mux.HandleFunc("GET /api/videos/history", s.handleAPIGetHistory)

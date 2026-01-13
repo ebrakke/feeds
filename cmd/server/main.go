@@ -116,6 +116,11 @@ func main() {
 	}
 	defer database.Close()
 
+	// Ensure Inbox system feed exists
+	if _, err := database.EnsureInboxExists(); err != nil {
+		log.Fatalf("Failed to create Inbox: %v", err)
+	}
+
 	yt := ytdlp.New(*ytdlpPath)
 
 	// OpenAI client (optional - for AI grouping)

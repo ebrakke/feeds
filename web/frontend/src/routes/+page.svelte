@@ -94,6 +94,17 @@
 		</a>
 	</div>
 {:else}
+	{@const inboxFeed = feeds.find(f => f.is_system)}
+	{@const regularFeeds = feeds.filter(f => !f.is_system)}
+
+	<!-- Inbox (triage) -->
+	{#if inboxFeed}
+		<a href="/feeds/{inboxFeed.id}" class="block bg-amber-900/40 border border-amber-700/50 rounded-lg p-4 mb-4 hover:bg-amber-900/60">
+			<h3 class="font-semibold text-amber-200">Inbox</h3>
+			<p class="text-sm text-amber-200/70">New channels to organize</p>
+		</a>
+	{/if}
+
 	<!-- Everything feed link -->
 	<a href="/all" class="block bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-4 mb-4 hover:from-blue-500 hover:to-purple-500">
 		<h3 class="font-semibold">Everything</h3>
@@ -101,7 +112,7 @@
 	</a>
 
 	<div class="space-y-2">
-		{#each feeds as feed}
+		{#each regularFeeds as feed}
 			<a href="/feeds/{feed.id}" class="block bg-gray-800 rounded-lg p-4 hover:bg-gray-700">
 				<h3 class="font-semibold">{feed.name}</h3>
 				<p class="text-sm text-gray-400">Updated {formatDate(feed.updated_at)}</p>

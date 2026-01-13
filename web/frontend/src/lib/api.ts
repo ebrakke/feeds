@@ -81,6 +81,13 @@ export async function moveChannel(id: number, feedId: number): Promise<void> {
 	});
 }
 
+export async function refreshChannel(id: number): Promise<{
+	videosFound: number;
+	channel: string;
+}> {
+	return fetchJSON(`/channels/${id}/refresh`, { method: 'POST' });
+}
+
 // Videos
 export async function getRecentVideos(limit = 100): Promise<{
 	videos: Video[];

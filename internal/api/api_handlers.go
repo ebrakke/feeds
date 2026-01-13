@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/erik/feeds/internal/db"
 	"github.com/erik/feeds/internal/models"
 	yt "github.com/erik/feeds/internal/youtube"
 )
@@ -122,6 +124,10 @@ func (s *Server) handleAPIDeleteFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.DeleteFeed(id); err != nil {
+		if errors.Is(err, db.ErrSystemFeed) {
+			jsonError(w, "Cannot delete system feed", http.StatusForbidden)
+			return
+		}
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -285,6 +291,41 @@ func (s *Server) handleAPIMoveChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	channel, err := s.db.GetChannel(id)
+	if err != nil {
+		jsonError(w, "Channel not found", http.StatusNotFound)
+		return
+	}
+
+	videos, err := yt.FetchLatestVideos(channel.URL, 20)
+	if err != nil {
+		jsonError(w, "Failed to fetch videos: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var savedCount int
+	for _, v := range videos {
+		v.ChannelID = channel.ID
+		if err := s.db.UpsertVideo(&v); err != nil {
+			log.Printf("Failed to save video %s: %v", v.ID, err)
+			continue
+		}
+		savedCount++
+	}
+
+	jsonResponse(w, map[string]any{
+		"videosFound": savedCount,
+		"channel":     channel.Name,
+	})
 }
 
 // Video endpoints
@@ -458,7 +499,7 @@ func (s *Server) importFeedFromJSON(body []byte, source string) (*models.Feed, e
 		return feed, nil
 	}
 
-	// Try NewPipe format
+	// Try NewPipe format - add channels to Inbox
 	var newPipeExport models.NewPipeExport
 	if err := json.Unmarshal(body, &newPipeExport); err == nil && len(newPipeExport.Subscriptions) > 0 {
 		var subs []models.NewPipeSubscription
@@ -472,24 +513,19 @@ func (s *Server) importFeedFromJSON(body []byte, source string) (*models.Feed, e
 			return nil, &importError{"No YouTube subscriptions found in file"}
 		}
 
-		feedName := "Imported Feed"
-		if strings.HasSuffix(source, ".json") {
-			parts := strings.Split(source, "/")
-			feedName = strings.TrimSuffix(parts[len(parts)-1], ".json")
-		}
-
-		feed, err := s.db.CreateFeed(feedName)
+		// Add to Inbox instead of creating a new feed
+		inbox, err := s.db.GetInbox()
 		if err != nil {
 			return nil, err
 		}
 
 		for _, sub := range subs {
-			if _, err := s.db.AddChannel(feed.ID, sub.URL, sub.Name); err != nil {
+			if _, err := s.db.AddChannel(inbox.ID, sub.URL, sub.Name); err != nil {
 				log.Printf("Failed to add channel %s: %v", sub.URL, err)
 			}
 		}
 
-		return feed, nil
+		return inbox, nil
 	}
 
 	return nil, &importError{"Unrecognized format - expected Feeds or NewPipe JSON"}
