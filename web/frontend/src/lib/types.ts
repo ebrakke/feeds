@@ -16,6 +16,12 @@ export interface Channel {
 	name: string;
 }
 
+export interface ChannelMembership {
+	channelId: number;
+	feedId: number;
+	feedName: string;
+}
+
 export interface Video {
 	id: string;
 	channel_id: number;
@@ -36,6 +42,7 @@ export interface WatchProgress {
 
 export interface Config {
 	aiEnabled: boolean;
+	ytdlpCookiesConfigured: boolean;
 }
 
 export interface WatchHistoryChannel {

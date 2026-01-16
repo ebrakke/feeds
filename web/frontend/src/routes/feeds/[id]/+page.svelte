@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getFeed, deleteFeed, deleteChannel } from '$lib/api';
 	import type { Feed, Channel, Video, WatchProgress } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
+
+	const PAGE_SIZE = 100;
 
 	let feed = $state<Feed | null>(null);
 	let channels = $state<Channel[]>([]);
@@ -12,18 +15,34 @@
 	let progressMap = $state<Record<string, WatchProgress>>({});
 	let allFeeds = $state<Feed[]>([]);
 	let loading = $state(true);
+	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
 	let refreshing = $state(false);
 	let refreshProgress = $state<{ current: number; total: number; channel: string } | null>(null);
 	let activeTab = $state<'videos' | 'shorts' | 'channels'>('videos');
 	let selectedChannels = $state<Set<number>>(new Set());
+	let total = $state(0);
+	let hideWatched = $state(false);
 
 	// Filter shorts (videos under 90 seconds with known duration)
 	let shortsVideos = $derived(videos.filter(v => v.duration > 0 && v.duration < 90));
 	let regularVideos = $derived(videos.filter(v => v.duration === 0 || v.duration >= 90));
 	let deletingChannels = $state<Set<number>>(new Set());
 
+	// Filter by watched status
+	let displayRegularVideos = $derived(
+		hideWatched ? regularVideos.filter(v => !progressMap[v.id]) : regularVideos
+	);
+	let displayShortsVideos = $derived(
+		hideWatched ? shortsVideos.filter(v => !progressMap[v.id]) : shortsVideos
+	);
+
+	// Stats
+	let watchedCount = $derived(videos.filter(v => progressMap[v.id]).length);
+	let hasMore = $derived(videos.length < total);
+
 	let id = $derived(parseInt($page.params.id));
+	let scrollKey = $derived(`feed-${id}-scroll-position`);
 	let allSelected = $derived(channels.length > 0 && selectedChannels.size === channels.length);
 
 	// Inbox-specific behavior
@@ -34,24 +53,98 @@
 
 	onMount(async () => {
 		await loadFeed();
+
+		// Restore scroll position after videos load
+		if (browser) {
+			const savedPosition = sessionStorage.getItem(scrollKey);
+			if (savedPosition) {
+				requestAnimationFrame(() => {
+					window.scrollTo(0, parseInt(savedPosition, 10));
+				});
+			}
+		}
+	});
+
+	// Save scroll position when navigating away
+	function saveScrollPosition() {
+		if (browser) {
+			sessionStorage.setItem(scrollKey, String(window.scrollY));
+		}
+	}
+
+	// Listen for navigation
+	if (browser) {
+		window.addEventListener('beforeunload', saveScrollPosition);
+		document.addEventListener('click', (e) => {
+			const target = e.target as HTMLElement;
+			if (target.closest('a')) {
+				saveScrollPosition();
+			}
+		});
+	}
+
+	onDestroy(() => {
+		if (browser) {
+			saveScrollPosition();
+			window.removeEventListener('beforeunload', saveScrollPosition);
+		}
 	});
 
 	async function loadFeed() {
 		loading = true;
 		error = null;
 		try {
-			const data = await getFeed(id);
+			const data = await getFeed(id, PAGE_SIZE, 0);
 			feed = data.feed;
 			channels = data.channels || [];
 			videos = data.videos || [];
 			progressMap = data.progressMap || {};
 			allFeeds = data.allFeeds || [];
+			total = data.total || 0;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load feed';
 		} finally {
 			loading = false;
 		}
 	}
+
+	async function loadMore() {
+		if (loadingMore || !hasMore) return;
+
+		loadingMore = true;
+		try {
+			const newOffset = videos.length;
+			const data = await getFeed(id, PAGE_SIZE, newOffset);
+			videos = [...videos, ...(data.videos || [])];
+			progressMap = { ...progressMap, ...data.progressMap };
+			total = data.total || total;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load more videos';
+		} finally {
+			loadingMore = false;
+		}
+	}
+
+	// Infinite scroll handler
+	function handleScroll() {
+		if (!browser || loadingMore || !hasMore || activeTab === 'channels') return;
+
+		const scrollHeight = document.documentElement.scrollHeight;
+		const scrollTop = window.scrollY;
+		const clientHeight = window.innerHeight;
+
+		if (scrollHeight - scrollTop - clientHeight < 500) {
+			loadMore();
+		}
+	}
+
+	// Set up scroll listener
+	$effect(() => {
+		if (browser && !loading) {
+			window.addEventListener('scroll', handleScroll);
+			return () => window.removeEventListener('scroll', handleScroll);
+		}
+	});
 
 	async function handleRefresh() {
 		refreshing = true;
@@ -193,11 +286,25 @@
 	<div class="mb-4 flex items-start justify-between gap-4">
 		<div>
 			<h1 class="text-2xl font-bold">{feed.name}</h1>
-			{#if feed.description}
-				<p class="text-gray-400 text-sm mt-1">{feed.description}</p>
-			{/if}
+			<p class="text-gray-400 text-sm">
+				{total.toLocaleString()} videos total
+				{#if watchedCount > 0}
+					&middot; {watchedCount.toLocaleString()} watched
+				{/if}
+				{#if videos.length < total}
+					&middot; {videos.length.toLocaleString()} loaded
+				{/if}
+			</p>
 		</div>
-		<div class="flex gap-2 flex-shrink-0">
+		<div class="flex gap-2 flex-shrink-0 items-center">
+			<label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer mr-2">
+				<input
+					type="checkbox"
+					bind:checked={hideWatched}
+					class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+				/>
+				Hide watched
+			</label>
 			<button
 				onclick={handleRefresh}
 				disabled={refreshing}
@@ -235,14 +342,14 @@
 				onclick={() => activeTab = 'videos'}
 				class="pb-2 px-1 text-sm font-medium border-b-2 transition-colors {activeTab === 'videos' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'}"
 			>
-				Videos ({regularVideos.length})
+				Videos ({displayRegularVideos.length}{hideWatched && regularVideos.length !== displayRegularVideos.length ? `/${regularVideos.length}` : ''})
 			</button>
 			{#if shortsVideos.length > 0}
 				<button
 					onclick={() => activeTab = 'shorts'}
 					class="pb-2 px-1 text-sm font-medium border-b-2 transition-colors {activeTab === 'shorts' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'}"
 				>
-					Shorts ({shortsVideos.length})
+					Shorts ({displayShortsVideos.length}{hideWatched && shortsVideos.length !== displayShortsVideos.length ? `/${shortsVideos.length}` : ''})
 				</button>
 			{/if}
 			<button
@@ -277,7 +384,7 @@
 			</div>
 		{:else}
 			<VideoGrid
-				videos={regularVideos}
+				videos={displayRegularVideos}
 				{progressMap}
 				showMoveAction={isInbox}
 				availableFeeds={moveTargetFeeds}
@@ -286,7 +393,7 @@
 		{/if}
 	{:else if activeTab === 'shorts'}
 		<VideoGrid
-			videos={shortsVideos}
+			videos={displayShortsVideos}
 			{progressMap}
 			showMoveAction={isInbox}
 			availableFeeds={moveTargetFeeds}
@@ -341,5 +448,26 @@
 				</div>
 			{/if}
 		</div>
+	{/if}
+
+	<!-- Load more indicator -->
+	{#if activeTab !== 'channels'}
+		{#if loadingMore}
+			<div class="flex justify-center py-8">
+				<svg class="animate-spin h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24">
+					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+				</svg>
+			</div>
+		{:else if hasMore}
+			<div class="flex justify-center py-8">
+				<button
+					onclick={loadMore}
+					class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm"
+				>
+					Load more ({total - videos.length} remaining)
+				</button>
+			</div>
+		{/if}
 	{/if}
 {/if}

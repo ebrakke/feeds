@@ -1,18 +1,25 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { importFromURL, importFromFile, getPacks } from '$lib/api';
-	import type { Feed } from '$lib/types';
+	import { importFromURL, importFromFile, getPacks, getConfig, setYtdlpCookies, clearYtdlpCookies } from '$lib/api';
+	import type { Feed, Config } from '$lib/types';
 
 	let url = $state('');
 	let file = $state<File | null>(null);
 	let loading = $state(false);
 	let error = $state<string | null>(null);
+	let config = $state<Config | null>(null);
+
+	let cookiesText = $state('');
+	let cookiesSaving = $state(false);
+	let cookiesError = $state<string | null>(null);
+	let cookiesMessage = $state<string | null>(null);
 
 	let packs = $state<{ name: string; description: string; author: string; tags: string[] }[]>([]);
 
 	// Load packs on mount
 	$effect(() => {
 		getPacks().then(p => packs = p).catch(() => {});
+		getConfig().then(c => config = c).catch(() => {});
 	});
 
 	async function handleImportURL(e: Event) {
@@ -50,6 +57,46 @@
 	function handleFileChange(e: Event) {
 		const target = e.target as HTMLInputElement;
 		file = target.files?.[0] ?? null;
+	}
+
+	async function handleSaveCookies(e: Event) {
+		e.preventDefault();
+		cookiesError = null;
+		cookiesMessage = null;
+
+		const cookies = cookiesText.trim();
+		if (!cookies) {
+			cookiesError = 'Paste cookies.txt contents first.';
+			return;
+		}
+
+		cookiesSaving = true;
+		try {
+			await setYtdlpCookies(cookies);
+			cookiesText = '';
+			cookiesMessage = 'Cookies saved. Streaming should work immediately.';
+			config = await getConfig();
+		} catch (e) {
+			cookiesError = e instanceof Error ? e.message : 'Failed to save cookies.';
+		} finally {
+			cookiesSaving = false;
+		}
+	}
+
+	async function handleClearCookies() {
+		cookiesError = null;
+		cookiesMessage = null;
+
+		cookiesSaving = true;
+		try {
+			await clearYtdlpCookies();
+			cookiesMessage = 'Cookies cleared.';
+			config = await getConfig();
+		} catch (e) {
+			cookiesError = e instanceof Error ? e.message : 'Failed to clear cookies.';
+		} finally {
+			cookiesSaving = false;
+		}
 	}
 
 	async function handlePackImport(packName: string) {
@@ -90,6 +137,61 @@
 			</div>
 		</div>
 	</a>
+
+	<!-- YouTube cookies -->
+	<div class="bg-gray-800 rounded-lg p-6 mb-6">
+		<h2 class="text-lg font-semibold mb-2">YouTube Cookies (optional)</h2>
+		<p class="text-gray-400 text-sm mb-4">
+			Paste a Netscape-format cookies.txt export here to unlock streaming when YouTube blocks your IP.
+			This stays on your server.
+		</p>
+
+		{#if cookiesError}
+			<div class="bg-red-900/50 border border-red-700 rounded-lg p-3 mb-4">
+				<p class="text-red-400 text-sm">{cookiesError}</p>
+			</div>
+		{/if}
+		{#if cookiesMessage}
+			<div class="bg-green-900/40 border border-green-700 rounded-lg p-3 mb-4">
+				<p class="text-green-300 text-sm">{cookiesMessage}</p>
+			</div>
+		{/if}
+
+		<form onsubmit={handleSaveCookies}>
+			<textarea
+				bind:value={cookiesText}
+				rows="6"
+				placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;FALSE&#9;0&#9;VISITOR_INFO1_LIVE&#9;..."
+				class="w-full bg-gray-900 border border-gray-700 rounded px-4 py-2 mb-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+			></textarea>
+			<div class="flex items-center gap-3">
+				<button
+					type="submit"
+					disabled={cookiesSaving}
+					class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded inline-flex items-center gap-2"
+				>
+					{#if cookiesSaving}
+						<svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+					{/if}
+					Save Cookies
+				</button>
+				<button
+					type="button"
+					onclick={handleClearCookies}
+					disabled={cookiesSaving || !config?.ytdlpCookiesConfigured}
+					class="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded"
+				>
+					Clear
+				</button>
+				<span class="text-xs text-gray-400">
+					Status: {config?.ytdlpCookiesConfigured ? 'configured' : 'not set'}
+				</span>
+			</div>
+		</form>
+	</div>
 
 	{#if error}
 		<div class="bg-red-900/50 border border-red-700 rounded-lg p-4 mb-6">

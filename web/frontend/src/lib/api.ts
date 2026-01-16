@@ -1,4 +1,4 @@
-import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion } from './types';
+import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion, ChannelMembership } from './types';
 
 const API_BASE = '/api';
 
@@ -20,19 +20,36 @@ export async function getConfig(): Promise<Config> {
 	return fetchJSON('/config');
 }
 
+export async function setYtdlpCookies(cookies: string): Promise<void> {
+	return fetchJSON('/config/ytdlp-cookies', {
+		method: 'POST',
+		body: JSON.stringify({ cookies })
+	});
+}
+
+export async function clearYtdlpCookies(): Promise<void> {
+	return fetchJSON('/config/ytdlp-cookies', {
+		method: 'POST',
+		body: JSON.stringify({ clear: true })
+	});
+}
+
 // Feeds
 export async function getFeeds(): Promise<Feed[]> {
 	return fetchJSON('/feeds');
 }
 
-export async function getFeed(id: number): Promise<{
+export async function getFeed(id: number, limit = 100, offset = 0): Promise<{
 	feed: Feed;
 	channels: Channel[];
 	videos: Video[];
 	progressMap: Record<string, WatchProgress>;
 	allFeeds: Feed[];
+	total: number;
+	offset: number;
+	limit: number;
 }> {
-	return fetchJSON(`/feeds/${id}`);
+	return fetchJSON(`/feeds/${id}?limit=${limit}&offset=${offset}`);
 }
 
 export async function createFeed(name: string): Promise<Feed> {
@@ -89,11 +106,14 @@ export async function refreshChannel(id: number): Promise<{
 }
 
 // Videos
-export async function getRecentVideos(limit = 100): Promise<{
+export async function getRecentVideos(limit = 100, offset = 0): Promise<{
 	videos: Video[];
 	progressMap: Record<string, WatchProgress>;
+	total: number;
+	offset: number;
+	limit: number;
 }> {
-	return fetchJSON(`/videos/recent?limit=${limit}`);
+	return fetchJSON(`/videos/recent?limit=${limit}&offset=${offset}`);
 }
 
 export async function getHistory(limit = 100): Promise<{
@@ -108,7 +128,8 @@ export async function getVideoInfo(id: string): Promise<{
 	channel: string;
 	streamURL: string;
 	channelURL: string;
-	existingChannelID: number;
+	channelMemberships: ChannelMembership[];
+	viewCount: number;
 	resumeFrom: number;
 }> {
 	return fetchJSON(`/videos/${id}/info`);

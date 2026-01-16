@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,8 +36,101 @@ func jsonError(w http.ResponseWriter, message string, status int) {
 
 func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]any{
-		"aiEnabled": s.ai != nil,
+		"aiEnabled":              s.ai != nil,
+		"ytdlpCookiesConfigured": s.ytdlpCookiesConfigured(),
 	})
+}
+
+func (s *Server) handleAPISetYTDLPCookies(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cookies string `json:"cookies"`
+		Clear   bool   `json:"clear"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	cookiesPath := s.ytdlp.CookiesPath
+	if cookiesPath == "" {
+		jsonError(w, "Cookies path not configured", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Clear {
+		if err := os.Remove(cookiesPath); err != nil && !os.IsNotExist(err) {
+			jsonError(w, "Failed to clear cookies", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	cookies := strings.TrimSpace(req.Cookies)
+	if cookies == "" {
+		jsonError(w, "Cookies are required", http.StatusBadRequest)
+		return
+	}
+	firstLine := ""
+	for _, line := range strings.Split(cookies, "\n") {
+		if strings.TrimSpace(line) != "" {
+			firstLine = strings.TrimSpace(line)
+			break
+		}
+	}
+	if firstLine == "" {
+		jsonError(w, "Cookies are required", http.StatusBadRequest)
+		return
+	}
+	if !strings.HasPrefix(firstLine, "# Netscape HTTP Cookie File") {
+		cookies = "# Netscape HTTP Cookie File\n" + cookies
+	}
+	cookies = normalizeNetscapeCookies(cookies)
+
+	if err := os.MkdirAll(filepath.Dir(cookiesPath), 0o755); err != nil {
+		jsonError(w, "Failed to prepare cookies directory", http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(cookiesPath, []byte(cookies+"\n"), 0o600); err != nil {
+		jsonError(w, "Failed to save cookies", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) ytdlpCookiesConfigured() bool {
+	if s.ytdlp == nil || s.ytdlp.CookiesPath == "" {
+		return false
+	}
+	info, err := os.Stat(s.ytdlp.CookiesPath)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return info.Size() > 0
+}
+
+func normalizeNetscapeCookies(contents string) string {
+	lines := strings.Split(contents, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 7 {
+			continue
+		}
+		domain := strings.TrimSpace(parts[0])
+		flag := strings.TrimSpace(parts[1])
+		if strings.HasPrefix(domain, ".") && strings.EqualFold(flag, "false") {
+			parts[1] = "TRUE"
+		} else if !strings.HasPrefix(domain, ".") && strings.EqualFold(flag, "true") {
+			parts[1] = "FALSE"
+		}
+		lines[i] = strings.Join(parts, "\t")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Feed endpoints
@@ -93,7 +188,21 @@ func (s *Server) handleAPIGetFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	videos, err := s.db.GetVideosByFeed(id, 100)
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	videos, total, err := s.db.GetVideosByFeed(id, limit, offset)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -115,6 +224,9 @@ func (s *Server) handleAPIGetFeed(w http.ResponseWriter, r *http.Request) {
 		"videos":      videos,
 		"progressMap": progressMap,
 		"allFeeds":    allFeeds,
+		"total":       total,
+		"offset":      offset,
+		"limit":       limit,
 	})
 }
 
@@ -378,7 +490,14 @@ func (s *Server) handleAPIGetRecentVideos(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	videos, err := s.db.GetAllRecentVideos(limit)
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	videos, total, err := s.db.GetAllRecentVideos(limit, offset)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -393,6 +512,9 @@ func (s *Server) handleAPIGetRecentVideos(w http.ResponseWriter, r *http.Request
 	jsonResponse(w, map[string]any{
 		"videos":      videos,
 		"progressMap": progressMap,
+		"total":       total,
+		"offset":      offset,
+		"limit":       limit,
 	})
 }
 

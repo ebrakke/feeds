@@ -347,6 +347,27 @@ func (db *DB) GetChannelByURL(url string) (*models.Channel, error) {
 	return &c, nil
 }
 
+// GetChannelsByURL returns all channels with a given URL (may exist in multiple feeds)
+func (db *DB) GetChannelsByURL(url string) ([]models.Channel, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, feed_id, url, name FROM channels WHERE url = ?", url,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var channels []models.Channel
+	for rows.Next() {
+		var c models.Channel
+		if err := rows.Scan(&c.ID, &c.FeedID, &c.URL, &c.Name); err != nil {
+			return nil, err
+		}
+		channels = append(channels, c)
+	}
+	return channels, rows.Err()
+}
+
 // Video operations
 
 func (db *DB) UpsertVideo(v *models.Video) error {
@@ -362,17 +383,29 @@ func (db *DB) UpsertVideo(v *models.Video) error {
 	return err
 }
 
-func (db *DB) GetVideosByFeed(feedID int64, limit int) ([]models.Video, error) {
+func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, int, error) {
+	// Get total count first
+	var total int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*)
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.feed_id = ?
+	`, feedID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := db.conn.Query(`
 		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
 		WHERE c.feed_id = ?
 		ORDER BY v.published DESC
-		LIMIT ?
-	`, feedID, limit)
+		LIMIT ? OFFSET ?
+	`, feedID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -380,11 +413,11 @@ func (db *DB) GetVideosByFeed(feedID int64, limit int) ([]models.Video, error) {
 	for rows.Next() {
 		var v models.Video
 		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		videos = append(videos, v)
 	}
-	return videos, rows.Err()
+	return videos, total, rows.Err()
 }
 
 func (db *DB) GetVideosByChannel(channelID int64, limit int) ([]models.Video, error) {
@@ -451,15 +484,21 @@ func (db *DB) DeleteVideosByFeed(feedID int64) error {
 	return err
 }
 
-func (db *DB) GetAllRecentVideos(limit int) ([]models.Video, error) {
+func (db *DB) GetAllRecentVideos(limit, offset int) ([]models.Video, int, error) {
+	// Get total count first
+	var total int
+	if err := db.conn.QueryRow("SELECT COUNT(*) FROM videos").Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := db.conn.Query(`
 		SELECT id, channel_id, title, channel_name, thumbnail, duration, published, url
 		FROM videos
 		ORDER BY published DESC
-		LIMIT ?
-	`, limit)
+		LIMIT ? OFFSET ?
+	`, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -467,11 +506,11 @@ func (db *DB) GetAllRecentVideos(limit int) ([]models.Video, error) {
 	for rows.Next() {
 		var v models.Video
 		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		videos = append(videos, v)
 	}
-	return videos, rows.Err()
+	return videos, total, rows.Err()
 }
 
 // Channel metadata operations
