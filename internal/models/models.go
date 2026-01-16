@@ -57,3 +57,24 @@ type ExportChannel struct {
 	URL  string `json:"url"`
 	Name string `json:"name"`
 }
+
+// YouTube Watch History (Google Takeout format)
+type WatchHistoryEntry struct {
+	Header    string              `json:"header"`
+	Title     string              `json:"title"`
+	TitleURL  string              `json:"titleUrl"`
+	Subtitles []WatchHistoryActor `json:"subtitles"`
+	Time      time.Time           `json:"time"`
+}
+
+type WatchHistoryActor struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// WatchHistoryChannel represents a channel extracted from watch history with view stats
+type WatchHistoryChannel struct {
+	URL        string `json:"url"`
+	Name       string `json:"name"`
+	WatchCount int    `json:"watch_count"`
+}

@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/db"
 	"github.com/erik/feeds/internal/models"
 	yt "github.com/erik/feeds/internal/youtube"
@@ -148,18 +150,56 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use worker pool for parallel fetching with rate limiting
+	const maxWorkers = 5
+
+	type result struct {
+		videos []models.Video
+		err    error
+		chName string
+		chID   int64
+	}
+
+	jobs := make(chan *models.Channel, len(channels))
+	results := make(chan result, len(channels))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ch := range jobs {
+				videos, err := yt.FetchLatestVideos(ch.URL, 5)
+				results <- result{videos: videos, err: err, chName: ch.Name, chID: ch.ID}
+			}
+		}()
+	}
+
+	// Send jobs
+	for i := range channels {
+		jobs <- &channels[i]
+	}
+	close(jobs)
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
 	var totalVideos int
 	var errors []string
 
-	for _, ch := range channels {
-		videos, err := yt.FetchLatestVideos(ch.URL, 5)
-		if err != nil {
-			errors = append(errors, ch.Name+": "+err.Error())
+	for res := range results {
+		if res.err != nil {
+			errors = append(errors, res.chName+": "+res.err.Error())
 			continue
 		}
 
-		for _, v := range videos {
-			v.ChannelID = ch.ID
+		for _, v := range res.videos {
+			v.ChannelID = res.chID
 			if err := s.db.UpsertVideo(&v); err != nil {
 				log.Printf("Failed to save video %s: %v", v.ID, err)
 				continue
@@ -627,4 +667,153 @@ func (s *Server) handleAPIConfirmOrganize(w http.ResponseWriter, r *http.Request
 	jsonResponse(w, map[string]any{
 		"feeds": createdFeeds,
 	})
+}
+
+// Watch History Import endpoints
+
+func (s *Server) handleAPIImportWatchHistory(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(50 * 1024 * 1024); err != nil { // 50MB limit for large histories
+		jsonError(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		jsonError(w, "No file uploaded", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	body, err := io.ReadAll(io.LimitReader(file, 50*1024*1024))
+	if err != nil {
+		jsonError(w, "Failed to read file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Parse watch history
+	channels, totalVideos, err := parseWatchHistory(body)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	jsonResponse(w, map[string]any{
+		"channels":    channels,
+		"totalVideos": totalVideos,
+	})
+}
+
+func (s *Server) handleAPIOrganizeWatchHistory(w http.ResponseWriter, r *http.Request) {
+	if s.ai == nil {
+		jsonError(w, "AI organization is not enabled", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Channels []models.WatchHistoryChannel `json:"channels"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Channels) == 0 {
+		jsonError(w, "No channels to organize", http.StatusBadRequest)
+		return
+	}
+
+	// Convert to NewPipeSubscription format and build metadata with watch counts
+	var subs []models.NewPipeSubscription
+	metadata := make(map[string]ai.ChannelInfo)
+
+	for _, ch := range req.Channels {
+		subs = append(subs, models.NewPipeSubscription{
+			ServiceID: 0,
+			URL:       ch.URL,
+			Name:      ch.Name,
+		})
+		metadata[ch.URL] = ai.ChannelInfo{
+			Name:       ch.Name,
+			URL:        ch.URL,
+			WatchCount: ch.WatchCount,
+		}
+	}
+
+	// Call AI with watch count metadata
+	groups, err := s.ai.SuggestGroupsWithMetadata(subs, metadata)
+	if err != nil {
+		jsonError(w, "AI organization failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]any{
+		"groups": groups,
+	})
+}
+
+// parseWatchHistory extracts unique channels from YouTube watch history JSON
+func parseWatchHistory(data []byte) ([]models.WatchHistoryChannel, int, error) {
+	var entries []models.WatchHistoryEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, 0, &importError{"Invalid watch history format: " + err.Error()}
+	}
+
+	if len(entries) == 0 {
+		return nil, 0, &importError{"No watch history entries found"}
+	}
+
+	// Count watches per channel
+	channelCounts := make(map[string]*models.WatchHistoryChannel)
+	totalVideos := 0
+
+	for _, entry := range entries {
+		// Skip non-YouTube entries and entries without channel info
+		if entry.Header != "YouTube" {
+			continue
+		}
+		if len(entry.Subtitles) == 0 {
+			continue
+		}
+
+		totalVideos++
+
+		// Get channel info from subtitles
+		channelURL := entry.Subtitles[0].URL
+		channelName := entry.Subtitles[0].Name
+
+		if channelURL == "" {
+			continue
+		}
+
+		if existing, ok := channelCounts[channelURL]; ok {
+			existing.WatchCount++
+		} else {
+			channelCounts[channelURL] = &models.WatchHistoryChannel{
+				URL:        channelURL,
+				Name:       channelName,
+				WatchCount: 1,
+			}
+		}
+	}
+
+	if len(channelCounts) == 0 {
+		return nil, 0, &importError{"No YouTube channels found in watch history"}
+	}
+
+	// Convert to slice and sort by watch count (descending)
+	channels := make([]models.WatchHistoryChannel, 0, len(channelCounts))
+	for _, ch := range channelCounts {
+		channels = append(channels, *ch)
+	}
+
+	// Sort by watch count descending
+	for i := 0; i < len(channels)-1; i++ {
+		for j := i + 1; j < len(channels); j++ {
+			if channels[j].WatchCount > channels[i].WatchCount {
+				channels[i], channels[j] = channels[j], channels[i]
+			}
+		}
+	}
+
+	return channels, totalVideos, nil
 }

@@ -70,7 +70,41 @@ clean:
 	rm -rf dist/
 	rm -rf web/dist/
 
-# Development: run frontend dev server with API proxy
+# Docker development commands
+.PHONY: docker-dev
+docker-dev:
+	docker compose --profile dev up dev
+
+.PHONY: docker-dev-build
+docker-dev-build:
+	docker compose --profile dev up --build dev
+
+.PHONY: docker-dev-down
+docker-dev-down:
+	docker compose --profile dev down
+
+.PHONY: docker-dev-logs
+docker-dev-logs:
+	docker compose --profile dev logs -f dev
+
+.PHONY: docker-dev-shell
+docker-dev-shell:
+	docker compose --profile dev exec dev sh
+
+# Docker production commands
+.PHONY: docker-up
+docker-up:
+	docker compose up -d
+
+.PHONY: docker-down
+docker-down:
+	docker compose down
+
+.PHONY: docker-logs
+docker-logs:
+	docker compose logs -f
+
+# Development: run frontend dev server with API proxy (local, not Docker)
 .PHONY: dev
 dev:
 	cd web/frontend && bun run dev
@@ -92,7 +126,6 @@ help:
 	@echo "  make build        - Build for current platform (frontend + Go)"
 	@echo "  make build-go     - Build Go only (assumes web/dist exists)"
 	@echo "  make frontend     - Build frontend SPA only"
-	@echo "  make dev          - Run frontend dev server with API proxy"
 	@echo "  make build-all    - Build for all platforms (requires cross-compilers)"
 	@echo "  make build-darwin - Build for macOS (amd64 + arm64)"
 	@echo "  make build-linux  - Build for Linux (amd64 + arm64)"
@@ -100,10 +133,22 @@ help:
 	@echo "  make clean        - Remove build artifacts"
 	@echo "  make install      - Install to GOPATH/bin"
 	@echo ""
-	@echo "Development workflow:"
+	@echo "Docker development (recommended):"
+	@echo "  make docker-dev       - Start dev environment (Go + Svelte hot reload)"
+	@echo "  make docker-dev-build - Rebuild and start dev environment"
+	@echo "  make docker-dev-down  - Stop dev environment"
+	@echo "  make docker-dev-logs  - Follow dev container logs"
+	@echo "  make docker-dev-shell - Shell into dev container"
+	@echo ""
+	@echo "Docker production:"
+	@echo "  make docker-up        - Start production container"
+	@echo "  make docker-down      - Stop production container"
+	@echo "  make docker-logs      - Follow production logs"
+	@echo ""
+	@echo "Local development (without Docker):"
+	@echo "  make dev          - Run frontend dev server with API proxy"
 	@echo "  1. Run 'make build-go' to build Go server"
 	@echo "  2. Run './feeds' in one terminal"
 	@echo "  3. Run 'make dev' in another for frontend hot reload"
 	@echo ""
-	@echo "Note: Cross-platform builds require appropriate C cross-compilers"
-	@echo "      for CGO (sqlite3). Native builds work out of the box."
+	@echo "Note: Cross-platform builds no longer require CGO (pure Go sqlite)."

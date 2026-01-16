@@ -21,8 +21,38 @@
 
 	let player: HTMLVideoElement | null = null;
 	let lastSavedTime = 0;
+	let resumeFrom = $state(0);
+
+	// Playback speed - persisted in localStorage
+	const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+	let playbackSpeed = $state(1);
+
+	function loadSavedSpeed() {
+		if (typeof localStorage !== 'undefined') {
+			const saved = localStorage.getItem('playbackSpeed');
+			if (saved) {
+				const parsed = parseFloat(saved);
+				if (speeds.includes(parsed)) {
+					playbackSpeed = parsed;
+				}
+			}
+		}
+	}
+
+	function setSpeed(speed: number) {
+		playbackSpeed = speed;
+		if (player) {
+			player.playbackRate = speed;
+		}
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('playbackSpeed', speed.toString());
+		}
+	}
 
 	onMount(async () => {
+		// Load saved playback speed
+		loadSavedSpeed();
+
 		// Load feeds
 		try {
 			feeds = await getFeeds();
@@ -43,6 +73,7 @@
 			channelURL = data.channelURL;
 			streamURL = data.streamURL;
 			existingChannelID = data.existingChannelID;
+			resumeFrom = data.resumeFrom || 0;
 			if (existingChannelID > 0) {
 				subscribed = true;
 			}
@@ -62,7 +93,14 @@
 
 	function handleVideoLoaded() {
 		if (player) {
-			player.play().catch(() => {});
+			// Apply saved playback speed
+			player.playbackRate = playbackSpeed;
+
+			// Resume from saved position if available
+			if (resumeFrom > 0) {
+				player.currentTime = resumeFrom;
+				lastSavedTime = resumeFrom;
+			}
 		}
 	}
 
@@ -156,6 +194,21 @@
 			</video>
 		{/if}
 	</div>
+
+	<!-- Speed controls -->
+	{#if !loading && !error}
+		<div class="flex items-center gap-1 mb-4">
+			<span class="text-gray-400 text-sm mr-2">Speed:</span>
+			{#each speeds as speed}
+				<button
+					onclick={() => setSpeed(speed)}
+					class="px-2 py-1 text-sm rounded {playbackSpeed === speed ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
+				>
+					{speed}x
+				</button>
+			{/each}
+		</div>
+	{/if}
 
 	<!-- Title -->
 	<h1 class="text-lg font-bold mb-2">

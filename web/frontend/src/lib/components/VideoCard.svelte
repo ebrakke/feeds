@@ -71,20 +71,17 @@
 		progress ? Math.round((progress.progress_seconds / progress.duration_seconds) * 100) : 0
 	);
 
-	let isWatched = $derived(progress?.completed ?? false);
+	let isWatched = $derived(progress ? progressPercent >= 90 : false);
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative" onmouseleave={closeDropdown}>
-	<a
-		href="/watch/{video.id}"
-		class="block bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-700 transition-colors {isWatched ? 'opacity-60' : ''}"
-	>
+<div class="relative bg-gray-800 rounded-lg overflow-hidden {isWatched ? 'opacity-60' : ''}" onmouseleave={closeDropdown}>
+	<a href="/watch/{video.id}" class="block">
 		<div class="relative">
 			<img
 				src={video.thumbnail}
 				alt={video.title}
-				class="w-full aspect-video object-cover"
+				class="w-full aspect-video object-cover hover:opacity-90 transition-opacity"
 				loading="lazy"
 			/>
 			{#if video.duration}
@@ -98,14 +95,21 @@
 				</div>
 			{/if}
 		</div>
-		<div class="p-3">
-			<h3 class="font-medium text-sm line-clamp-2 mb-1">{video.title}</h3>
-			{#if showChannel}
-				<p class="text-xs text-gray-400">{video.channel_name}</p>
-			{/if}
-			<p class="text-xs text-gray-500">{formatRelativeTime(video.published)}</p>
-		</div>
 	</a>
+	<div class="p-3">
+		<a href="/watch/{video.id}" class="block">
+			<h3 class="font-medium text-sm line-clamp-2 mb-1 hover:text-blue-400 transition-colors">{video.title}</h3>
+		</a>
+		{#if showChannel}
+			<a
+				href="/channels/{video.channel_id}"
+				class="text-sm text-gray-400 hover:text-blue-400 transition-colors block truncate"
+			>
+				{video.channel_name}
+			</a>
+		{/if}
+		<p class="text-xs text-gray-500 mt-1">{formatRelativeTime(video.published)}</p>
+	</div>
 
 	{#if showMoveAction && availableFeeds.length > 0}
 		<button

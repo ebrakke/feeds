@@ -57,6 +57,7 @@ type ChannelInfo struct {
 	Name        string
 	URL         string
 	VideoTitles []string
+	WatchCount  int // Number of times user watched videos from this channel
 }
 
 func (c *Client) SuggestGroups(subs []models.NewPipeSubscription) ([]GroupSuggestion, error) {
@@ -69,8 +70,17 @@ func (c *Client) SuggestGroupsWithMetadata(subs []models.NewPipeSubscription, me
 	for _, sub := range subs {
 		entry := sub.Name
 		if metadata != nil {
-			if info, ok := metadata[sub.URL]; ok && len(info.VideoTitles) > 0 {
-				entry = fmt.Sprintf("%s (recent videos: %s)", sub.Name, truncateList(info.VideoTitles, 3))
+			if info, ok := metadata[sub.URL]; ok {
+				var extras []string
+				if info.WatchCount > 0 {
+					extras = append(extras, fmt.Sprintf("%d views", info.WatchCount))
+				}
+				if len(info.VideoTitles) > 0 {
+					extras = append(extras, "videos: "+truncateList(info.VideoTitles, 3))
+				}
+				if len(extras) > 0 {
+					entry = fmt.Sprintf("%s (%s)", sub.Name, strings.Join(extras, ", "))
+				}
 			}
 		}
 		channelEntries = append(channelEntries, entry)
@@ -78,7 +88,7 @@ func (c *Client) SuggestGroupsWithMetadata(subs []models.NewPipeSubscription, me
 
 	prompt := fmt.Sprintf(`You are organizing YouTube channel subscriptions into logical groups.
 
-Given this list of YouTube channels (with recent video titles for context), group them into 5-12 categories based on their content type/topic.
+Given this list of YouTube channels (with watch counts and recent video titles for context), group them into 5-12 categories based on their content type/topic.
 
 Channels:
 %s
@@ -94,11 +104,12 @@ Respond with ONLY valid JSON in this exact format (no markdown, no explanation):
 }
 
 CRITICAL RULES:
-- Copy channel names EXACTLY as given (before the "(recent videos:" part)
+- Copy channel names EXACTLY as given (before the parentheses)
 - Every single channel MUST appear in exactly one group
 - DO NOT use "Other" or "Miscellaneous" - find a specific category for each channel
 - Group names should be short (1-3 words)
 - If unsure, use the video titles to determine the category
+- Channels with higher view counts are ones the user watches frequently - prioritize grouping these well
 - Good categories: Tech, Gaming, Music, Education, News, Entertainment, Sports, Cooking, Science, Art, Finance, Comedy, Lifestyle, DIY, Automotive, Travel, Health, Politics, History, Animation, Reviews, Podcasts, etc.
 - It's okay to have small groups with just 1-2 channels if they don't fit elsewhere`, channelEntries)
 

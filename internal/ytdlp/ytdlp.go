@@ -191,6 +191,53 @@ func (y *YTDLP) GetDownloadURL(videoURL string, quality string) (string, string,
 	return string(bytes.TrimSpace(stdout.Bytes())), ext, nil
 }
 
+// GetVideoDurations fetches durations for multiple videos in a single yt-dlp call
+// Returns a map of video ID to duration in seconds
+func (y *YTDLP) GetVideoDurations(videoIDs []string) (map[string]int, error) {
+	if len(videoIDs) == 0 {
+		return make(map[string]int), nil
+	}
+
+	// Build playlist URL with all video IDs
+	// yt-dlp can fetch multiple videos at once using comma-separated IDs
+	urls := make([]string, len(videoIDs))
+	for i, id := range videoIDs {
+		urls[i] = "https://www.youtube.com/watch?v=" + id
+	}
+
+	args := []string{
+		"--dump-json",
+		"--no-warnings",
+		"--skip-download",
+		"--no-playlist",
+	}
+	args = append(args, urls...)
+
+	cmd := exec.Command(y.BinPath, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
+	}
+
+	durations := make(map[string]int)
+	decoder := json.NewDecoder(&stdout)
+	for decoder.More() {
+		var v VideoInfo
+		if err := decoder.Decode(&v); err != nil {
+			continue
+		}
+		if v.ID != "" && v.Duration > 0 {
+			durations[v.ID] = v.Duration
+		}
+	}
+
+	return durations, nil
+}
+
 // ToModel converts VideoInfo to our Video model
 func (v *VideoInfo) ToModel(channelID int64, channelName string) *models.Video {
 	published := time.Now()

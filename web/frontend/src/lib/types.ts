@@ -31,10 +31,20 @@ export interface WatchProgress {
 	video_id: string;
 	progress_seconds: number;
 	duration_seconds: number;
-	completed: boolean;
-	last_watched: string;
+	watched_at: string;
 }
 
 export interface Config {
 	aiEnabled: boolean;
+}
+
+export interface WatchHistoryChannel {
+	url: string;
+	name: string;
+	watch_count: number;
+}
+
+export interface GroupSuggestion {
+	name: string;
+	channels: { url: string; name: string }[];
 }

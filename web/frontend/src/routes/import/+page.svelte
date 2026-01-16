@@ -74,6 +74,23 @@
 <div class="max-w-2xl mx-auto">
 	<h1 class="text-2xl font-bold mb-6">Import Feed</h1>
 
+	<!-- Watch History Import (featured) -->
+	<a
+		href="/import/watch-history"
+		class="block bg-gradient-to-r from-blue-900/50 to-purple-900/50 border border-blue-700/50 rounded-lg p-6 mb-6 hover:border-blue-600 transition-colors"
+	>
+		<div class="flex items-start gap-4">
+			<div class="text-3xl">📺</div>
+			<div>
+				<h2 class="text-lg font-semibold mb-1">Import from YouTube Watch History</h2>
+				<p class="text-gray-400 text-sm">
+					Upload your Google Takeout watch history to discover and organize channels you've actually watched.
+					AI will categorize them into feeds based on content type.
+				</p>
+			</div>
+		</div>
+	</a>
+
 	{#if error}
 		<div class="bg-red-900/50 border border-red-700 rounded-lg p-4 mb-6">
 			<p class="text-red-400">{error}</p>

@@ -1,4 +1,4 @@
-import type { Feed, Channel, Video, WatchProgress, Config } from './types';
+import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion } from './types';
 
 const API_BASE = '/api';
 
@@ -109,6 +109,7 @@ export async function getVideoInfo(id: string): Promise<{
 	streamURL: string;
 	channelURL: string;
 	existingChannelID: number;
+	resumeFrom: number;
 }> {
 	return fetchJSON(`/videos/${id}/info`);
 }
@@ -168,4 +169,41 @@ export async function getPack(name: string): Promise<{
 	channels: { url: string; name: string }[];
 }> {
 	return fetchJSON(`/packs/${name}`);
+}
+
+// Watch History Import
+export async function importWatchHistory(file: File): Promise<{
+	channels: WatchHistoryChannel[];
+	totalVideos: number;
+}> {
+	const formData = new FormData();
+	formData.append('file', file);
+	const res = await fetch(API_BASE + '/import/watch-history', {
+		method: 'POST',
+		body: formData
+	});
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({ error: res.statusText }));
+		throw new Error(error.error || res.statusText);
+	}
+	return res.json();
+}
+
+export async function organizeWatchHistory(channels: WatchHistoryChannel[]): Promise<{
+	groups: GroupSuggestion[];
+}> {
+	return fetchJSON('/import/watch-history/organize', {
+		method: 'POST',
+		body: JSON.stringify({ channels })
+	});
+}
+
+export async function confirmOrganize(
+	groups: { name: string; channels: string[] }[],
+	channelNames: Record<string, string>
+): Promise<{ feeds: Feed[] }> {
+	return fetchJSON('/import/confirm', {
+		method: 'POST',
+		body: JSON.stringify({ groups, channelNames })
+	});
 }

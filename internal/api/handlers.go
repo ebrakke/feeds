@@ -121,6 +121,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
 	mux.HandleFunc("POST /api/import/organize", s.handleAPIOrganize)
 	mux.HandleFunc("POST /api/import/confirm", s.handleAPIConfirmOrganize)
+	mux.HandleFunc("POST /api/import/watch-history", s.handleAPIImportWatchHistory)
+	mux.HandleFunc("POST /api/import/watch-history/organize", s.handleAPIOrganizeWatchHistory)
 
 	mux.HandleFunc("GET /api/packs", s.handlePacksList)
 	mux.HandleFunc("GET /api/packs/{name}", s.handlePackFile)
@@ -591,28 +593,70 @@ func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Process channels sequentially to ensure ordered progress updates
+	// Use worker pool for parallel fetching
+	const maxWorkers = 5
+
+	type result struct {
+		videos  []models.Video
+		err     error
+		chName  string
+		chID    int64
+	}
+
+	jobs := make(chan *models.Channel, len(channels))
+	results := make(chan result, len(channels))
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ch := range jobs {
+				videos, err := youtube.FetchLatestVideos(ch.URL, 5)
+				results <- result{videos: videos, err: err, chName: ch.Name, chID: ch.ID}
+			}
+		}()
+	}
+
+	// Send jobs
+	for i := range channels {
+		jobs <- &channels[i]
+	}
+	close(jobs)
+
+	// Wait for workers and close results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results and send progress
 	var totalVideos int
-	for i, ch := range channels {
+	var completed int
+	var errors []string
+
+	for res := range results {
+		completed++
+
 		// Send progress event
 		progress := map[string]any{
-			"current": i + 1,
+			"current": completed,
 			"total":   total,
-			"channel": ch.Name,
+			"channel": res.chName,
 		}
 		data, _ := json.Marshal(progress)
 		fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
 		flusher.Flush()
 
-		// Fetch videos
-		videos, err := youtube.FetchLatestVideos(ch.URL, 5)
-		if err != nil {
-			log.Printf("Failed to fetch videos for %s: %v", ch.Name, err)
+		if res.err != nil {
+			errors = append(errors, res.chName+": "+res.err.Error())
+			log.Printf("Failed to fetch videos for %s: %v", res.chName, res.err)
 			continue
 		}
 
-		for _, v := range videos {
-			v.ChannelID = ch.ID
+		for _, v := range res.videos {
+			v.ChannelID = res.chID
 			if err := s.db.UpsertVideo(&v); err != nil {
 				log.Printf("Failed to save video %s: %v", v.ID, err)
 				continue
@@ -621,16 +665,60 @@ func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Fetch durations for videos that don't have them (in background)
+	go s.fetchMissingDurations(feedID)
+
 	// Send completion event
 	complete := map[string]any{
 		"totalVideos": totalVideos,
 		"feedID":      feedID,
+		"errors":      errors,
 	}
 	data, _ := json.Marshal(complete)
 	fmt.Fprintf(w, "event: complete\ndata: %s\n\n", data)
 	flusher.Flush()
 
 	log.Printf("SSE refresh complete: %d videos saved for feed %d", totalVideos, feedID)
+}
+
+// fetchMissingDurations fetches durations for videos that don't have them
+func (s *Server) fetchMissingDurations(feedID int64) {
+	// Get videos without duration (limit to most recent 50 to avoid long waits)
+	videoIDs, err := s.db.GetVideosWithoutDuration(feedID, 50)
+	if err != nil {
+		log.Printf("Failed to get videos without duration: %v", err)
+		return
+	}
+
+	if len(videoIDs) == 0 {
+		return
+	}
+
+	log.Printf("Fetching durations for %d videos in feed %d", len(videoIDs), feedID)
+
+	// Fetch durations in batches to avoid overwhelming yt-dlp
+	batchSize := 10
+	for i := 0; i < len(videoIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(videoIDs) {
+			end = len(videoIDs)
+		}
+		batch := videoIDs[i:end]
+
+		durations, err := s.ytdlp.GetVideoDurations(batch)
+		if err != nil {
+			log.Printf("Failed to fetch durations for batch: %v", err)
+			continue
+		}
+
+		for videoID, duration := range durations {
+			if err := s.db.UpdateVideoDuration(videoID, duration); err != nil {
+				log.Printf("Failed to update duration for %s: %v", videoID, err)
+			}
+		}
+	}
+
+	log.Printf("Finished fetching durations for feed %d", feedID)
 }
 
 func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
@@ -699,6 +787,12 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Get saved progress for resume
+		var resumeFrom int
+		if wp, err := s.db.GetWatchProgress(videoID); err == nil {
+			resumeFrom = wp.ProgressSeconds
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"title":             cached.title,
@@ -706,6 +800,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 			"streamURL":         cached.streamURL,
 			"channelURL":        cached.channelURL,
 			"existingChannelID": existingChannelID,
+			"resumeFrom":        resumeFrom,
 		})
 		return
 	}
@@ -758,6 +853,12 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get saved progress for resume
+	var resumeFrom int
+	if wp, err := s.db.GetWatchProgress(videoID); err == nil {
+		resumeFrom = wp.ProgressSeconds
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"title":             info.Title,
@@ -765,6 +866,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		"streamURL":         streamURL,
 		"channelURL":        channelURL,
 		"existingChannelID": existingChannelID,
+		"resumeFrom":        resumeFrom,
 	})
 }
 
@@ -1232,6 +1334,11 @@ func (s *Server) handleUpdateWatchProgress(w http.ResponseWriter, r *http.Reques
 	if err := s.db.UpdateWatchProgress(videoID, req.Progress, req.Duration); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Also update the video's duration in the videos table if we have it
+	if req.Duration > 0 {
+		s.db.UpdateVideoDuration(videoID, req.Duration)
 	}
 
 	w.WriteHeader(http.StatusOK)

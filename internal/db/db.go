@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/erik/feeds/internal/models"
 )
@@ -18,7 +18,7 @@ type DB struct {
 }
 
 func New(path string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", path)
+	conn, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
@@ -411,6 +411,37 @@ func (db *DB) GetVideosByChannel(channelID int64, limit int) ([]models.Video, er
 	return videos, rows.Err()
 }
 
+// GetVideosWithoutDuration returns video IDs that have duration = 0
+func (db *DB) GetVideosWithoutDuration(feedID int64, limit int) ([]string, error) {
+	rows, err := db.conn.Query(`
+		SELECT v.id FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.feed_id = ? AND v.duration = 0
+		ORDER BY v.published DESC
+		LIMIT ?
+	`, feedID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// UpdateVideoDuration updates the duration for a single video
+func (db *DB) UpdateVideoDuration(videoID string, duration int) error {
+	_, err := db.conn.Exec(`UPDATE videos SET duration = ? WHERE id = ?`, duration, videoID)
+	return err
+}
+
 func (db *DB) DeleteVideosByFeed(feedID int64) error {
 	_, err := db.conn.Exec(`
 		DELETE FROM videos WHERE channel_id IN (
@@ -496,19 +527,30 @@ func (db *DB) UpsertChannelMetadata(url, name, videoTitles string) error {
 // Watch progress operations
 
 type WatchProgress struct {
-	VideoID         string
-	ProgressSeconds int
-	DurationSeconds int
-	WatchedAt       time.Time
+	VideoID         string    `json:"video_id"`
+	ProgressSeconds int       `json:"progress_seconds"`
+	DurationSeconds int       `json:"duration_seconds"`
+	WatchedAt       time.Time `json:"watched_at"`
 }
 
 func (db *DB) UpdateWatchProgress(videoID string, progressSeconds, durationSeconds int) error {
+	// Only update if:
+	// 1. No existing record, OR
+	// 2. New progress is higher than existing, OR
+	// 3. New progress is at least 10 seconds (to allow restarting from beginning intentionally)
 	_, err := db.conn.Exec(`
 		INSERT INTO watch_progress (video_id, progress_seconds, duration_seconds, watched_at)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(video_id) DO UPDATE SET
-			progress_seconds = excluded.progress_seconds,
-			duration_seconds = excluded.duration_seconds,
+			progress_seconds = CASE
+				WHEN excluded.progress_seconds > watch_progress.progress_seconds THEN excluded.progress_seconds
+				WHEN excluded.progress_seconds >= 10 THEN excluded.progress_seconds
+				ELSE watch_progress.progress_seconds
+			END,
+			duration_seconds = CASE
+				WHEN excluded.duration_seconds > watch_progress.duration_seconds THEN excluded.duration_seconds
+				ELSE watch_progress.duration_seconds
+			END,
 			watched_at = excluded.watched_at
 	`, videoID, progressSeconds, durationSeconds, time.Now())
 	return err
