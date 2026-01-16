@@ -111,6 +111,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/videos/recent", s.handleAPIGetRecentVideos)
 	mux.HandleFunc("GET /api/videos/history", s.handleAPIGetHistory)
 	mux.HandleFunc("GET /api/videos/{id}/info", s.handleWatchInfo)
+	mux.HandleFunc("GET /api/videos/{id}/nearby", s.handleAPINearbyVideos)
 	mux.HandleFunc("POST /api/videos/{id}/progress", s.handleUpdateWatchProgress)
 	mux.HandleFunc("POST /api/videos/{id}/watched", s.handleAPIMarkWatched)
 	mux.HandleFunc("DELETE /api/videos/{id}/watched", s.handleAPIMarkUnwatched)
@@ -867,6 +868,45 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		"channelURL":        channelURL,
 		"existingChannelID": existingChannelID,
 		"resumeFrom":        resumeFrom,
+	})
+}
+
+// handleAPINearbyVideos returns videos from the same feed, positioned after the current video
+func (s *Server) handleAPINearbyVideos(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 50 {
+			limit = parsed
+		}
+	}
+
+	videos, feedID, err := s.db.GetNearbyVideos(videoID, limit)
+	if err != nil {
+		// Video might not be in our database (e.g., watching from URL)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"videos":      []models.Video{},
+			"feedId":      0,
+			"progressMap": map[string]any{},
+		})
+		return
+	}
+
+	// Get watch progress for all videos
+	videoIDs := make([]string, len(videos))
+	for i, v := range videos {
+		videoIDs[i] = v.ID
+	}
+	progressMap, _ := s.db.GetWatchProgressMap(videoIDs)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"videos":      videos,
+		"feedId":      feedID,
+		"progressMap": progressMap,
 	})
 }
 

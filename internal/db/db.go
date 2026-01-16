@@ -640,3 +640,46 @@ func (db *DB) DeleteWatchProgress(videoID string) error {
 	_, err := db.conn.Exec("DELETE FROM watch_progress WHERE video_id = ?", videoID)
 	return err
 }
+
+// GetNearbyVideos returns videos from the same feed as the given video,
+// positioned around the current video based on publish date.
+// Returns up to `limit` videos that come after this video in the feed.
+func (db *DB) GetNearbyVideos(videoID string, limit int) ([]models.Video, int64, error) {
+	// First, get the video's feed and published date
+	var feedID int64
+	var published time.Time
+	err := db.conn.QueryRow(`
+		SELECT c.feed_id, v.published
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE v.id = ?
+	`, videoID).Scan(&feedID, &published)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Get videos from the same feed that are older than (or same as) the current video
+	// excluding the current video itself, ordered by newest first
+	rows, err := db.conn.Query(`
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.published, v.url
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.feed_id = ? AND v.published <= ? AND v.id != ?
+		ORDER BY v.published DESC
+		LIMIT ?
+	`, feedID, published, videoID, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	for rows.Next() {
+		var v models.Video
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+			return nil, 0, err
+		}
+		videos = append(videos, v)
+	}
+	return videos, feedID, rows.Err()
+}

@@ -114,6 +114,14 @@ export async function getVideoInfo(id: string): Promise<{
 	return fetchJSON(`/videos/${id}/info`);
 }
 
+export async function getNearbyVideos(id: string, limit = 20): Promise<{
+	videos: Video[];
+	feedId: number;
+	progressMap: Record<string, WatchProgress>;
+}> {
+	return fetchJSON(`/videos/${id}/nearby?limit=${limit}`);
+}
+
 export async function updateProgress(id: string, progress: number, duration: number): Promise<void> {
 	return fetchJSON(`/videos/${id}/progress`, {
 		method: 'POST',

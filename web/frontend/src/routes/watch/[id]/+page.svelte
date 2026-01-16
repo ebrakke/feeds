@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel } from '$lib/api';
-	import type { Feed } from '$lib/types';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, getNearbyVideos } from '$lib/api';
+	import type { Feed, Video, WatchProgress } from '$lib/types';
 
 	let videoId = $derived($page.params.id);
 
@@ -12,6 +12,11 @@
 	let streamURL = $state('');
 	let existingChannelID = $state(0);
 	let feeds = $state<Feed[]>([]);
+
+	// Nearby videos
+	let nearbyVideos = $state<Video[]>([]);
+	let nearbyProgressMap = $state<Record<string, WatchProgress>>({});
+	let nearbyFeedId = $state(0);
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -49,6 +54,23 @@
 		}
 	}
 
+	function formatDuration(seconds: number): string {
+		if (seconds <= 0) return '';
+		const h = Math.floor(seconds / 3600);
+		const m = Math.floor((seconds % 3600) / 60);
+		const s = seconds % 60;
+		if (h > 0) {
+			return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+		}
+		return `${m}:${s.toString().padStart(2, '0')}`;
+	}
+
+	function getWatchedPercent(video: Video): number {
+		const progress = nearbyProgressMap[video.id];
+		if (!progress || progress.duration_seconds === 0) return 0;
+		return Math.min(100, (progress.progress_seconds / progress.duration_seconds) * 100);
+	}
+
 	onMount(async () => {
 		// Load saved playback speed
 		loadSavedSpeed();
@@ -81,6 +103,16 @@
 			error = e instanceof Error ? e.message : 'Failed to load video';
 		} finally {
 			loading = false;
+		}
+
+		// Load nearby videos (don't block on this)
+		try {
+			const nearby = await getNearbyVideos(videoId, 20);
+			nearbyVideos = nearby.videos;
+			nearbyProgressMap = nearby.progressMap;
+			nearbyFeedId = nearby.feedId;
+		} catch (e) {
+			console.warn('Failed to load nearby videos:', e);
 		}
 	});
 
@@ -276,4 +308,61 @@
 	>
 		Watch on YouTube
 	</a>
+
+	<!-- Up Next / Nearby Videos -->
+	{#if nearbyVideos.length > 0}
+		<div class="mt-8">
+			<div class="flex items-center justify-between mb-3">
+				<h2 class="text-lg font-semibold">Up Next</h2>
+				{#if nearbyFeedId > 0}
+					<a href="/feeds/{nearbyFeedId}" class="text-sm text-blue-400 hover:text-blue-300">
+						View Feed
+					</a>
+				{/if}
+			</div>
+			<div class="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+				{#each nearbyVideos as video}
+					<a
+						href="/watch/{video.id}"
+						class="flex-shrink-0 w-64 group"
+					>
+						<div class="relative aspect-video bg-gray-800 rounded-lg overflow-hidden mb-2">
+							{#if video.thumbnail}
+								<img
+									src={video.thumbnail}
+									alt=""
+									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+								/>
+							{:else}
+								<div class="w-full h-full flex items-center justify-center text-gray-600">
+									<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+									</svg>
+								</div>
+							{/if}
+							<!-- Duration badge -->
+							{#if video.duration > 0}
+								<span class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
+									{formatDuration(video.duration)}
+								</span>
+							{/if}
+							<!-- Watch progress bar -->
+							{#if getWatchedPercent(video) > 0}
+								<div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-900/50">
+									<div
+										class="h-full bg-red-600"
+										style="width: {getWatchedPercent(video)}%"
+									></div>
+								</div>
+							{/if}
+						</div>
+						<h3 class="text-sm font-medium line-clamp-2 group-hover:text-blue-400 transition-colors">
+							{video.title}
+						</h3>
+						<p class="text-xs text-gray-500 mt-1">{video.channel_name}</p>
+					</a>
+				{/each}
+			</div>
+		</div>
+	{/if}
 </div>
