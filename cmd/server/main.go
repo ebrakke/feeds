@@ -89,6 +89,7 @@ func main() {
 	addr := flag.String("addr", getEnvOrDefault("FEEDS_ADDR", ":8080"), "HTTP server address")
 	dbPath := flag.String("db", getEnvOrDefault("FEEDS_DB", "feeds.db"), "SQLite database path")
 	ytdlpPath := flag.String("ytdlp", getEnvOrDefault("FEEDS_YTDLP", "yt-dlp"), "Path to yt-dlp binary")
+	ytdlpCookies := flag.String("ytdlp-cookies", getEnvOrDefault("FEEDS_YTDLP_COOKIES", "data/ytdlp-cookies.txt"), "Path to yt-dlp cookies.txt")
 	showVersion := flag.Bool("version", false, "Show version and exit")
 
 	flag.Usage = func() {
@@ -100,6 +101,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  FEEDS_ADDR        Server address (default :8080)\n")
 		fmt.Fprintf(os.Stderr, "  FEEDS_DB          Database path (default feeds.db)\n")
 		fmt.Fprintf(os.Stderr, "  FEEDS_YTDLP       Path to yt-dlp binary (default yt-dlp)\n")
+		fmt.Fprintf(os.Stderr, "  FEEDS_YTDLP_COOKIES  Path to yt-dlp cookies.txt (optional)\n")
 		fmt.Fprintf(os.Stderr, "  OPENAI_API_KEY    Enable AI-powered subscription organization\n")
 	}
 
@@ -121,7 +123,12 @@ func main() {
 		log.Fatalf("Failed to create Inbox: %v", err)
 	}
 
-	yt := ytdlp.New(*ytdlpPath)
+	yt := ytdlp.New(*ytdlpPath, *ytdlpCookies)
+	if version, err := yt.Version(); err != nil {
+		log.Printf("yt-dlp version check failed: %v", err)
+	} else {
+		log.Printf("yt-dlp version: %s", version)
+	}
 
 	// OpenAI client (optional - for AI grouping)
 	var aiClient *ai.Client

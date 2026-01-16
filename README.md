@@ -42,6 +42,7 @@ Piped is great for privacy-first proxying for many users. Grayjay is great as a 
 
 - Go 1.22+
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and in PATH
+- [Bun](https://bun.sh/) for frontend dev/build
 
 ### Run it
 
@@ -49,13 +50,21 @@ Piped is great for privacy-first proxying for many users. Grayjay is great as a 
 # Clone and build
 git clone https://github.com/erik/feeds.git
 cd feeds
-go build -o feeds ./cmd/server
+make build
 
 # Run (creates feeds.db in current directory)
 ./feeds
 ```
 
 Open `http://localhost:8080` in your browser.
+
+### Development
+
+```bash
+make dev
+```
+
+Open `http://localhost:5173` in your browser.
 
 ### Configuration
 
@@ -65,6 +74,7 @@ Create a `.env` file or set environment variables:
 PORT=8080              # Server port
 DB_PATH=./feeds.db     # SQLite database location
 OPENAI_API_KEY=...     # Optional: for AI-powered feed organization
+FEEDS_YTDLP_COOKIES=... # Optional: path to yt-dlp cookies.txt
 ```
 
 ## Sharing feeds

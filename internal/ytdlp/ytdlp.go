@@ -4,21 +4,34 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/erik/feeds/internal/models"
 )
 
 type YTDLP struct {
-	BinPath string
+	BinPath     string
+	CookiesPath string
 }
 
-func New(binPath string) *YTDLP {
+func New(binPath string, cookiesPath string) *YTDLP {
 	if binPath == "" {
 		binPath = "yt-dlp"
 	}
-	return &YTDLP{BinPath: binPath}
+	return &YTDLP{BinPath: binPath, CookiesPath: cookiesPath}
+}
+
+func (y *YTDLP) appendCookiesArgs(args []string) []string {
+	if y.CookiesPath == "" {
+		return args
+	}
+	if _, err := os.Stat(y.CookiesPath); err != nil {
+		return args
+	}
+	return append(args, "--cookies", y.CookiesPath)
 }
 
 // Thumbnail represents a single thumbnail option
@@ -41,6 +54,7 @@ type VideoInfo struct {
 	WebpageURL  string      `json:"webpage_url"`
 	URL         string      `json:"url"`
 	Description string      `json:"description"`
+	ViewCount   int64       `json:"view_count"`
 }
 
 // GetBestThumbnail returns the best available thumbnail URL
@@ -67,13 +81,15 @@ func (v *VideoInfo) GetBestThumbnail() string {
 
 // GetLatestVideos fetches the latest videos from a channel (fast mode)
 func (y *YTDLP) GetLatestVideos(channelURL string, limit int) ([]VideoInfo, error) {
-	cmd := exec.Command(y.BinPath,
+	args := []string{
 		"--flat-playlist",
 		"--playlist-end", fmt.Sprintf("%d", limit),
 		"--dump-json",
 		"--no-warnings",
-		channelURL,
-	)
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, channelURL)
+	cmd := exec.Command(y.BinPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -98,11 +114,14 @@ func (y *YTDLP) GetLatestVideos(channelURL string, limit int) ([]VideoInfo, erro
 
 // GetStreamURL extracts the direct stream URL for a video
 func (y *YTDLP) GetStreamURL(videoURL string) (string, error) {
-	cmd := exec.Command(y.BinPath,
+	args := []string{
+		"--force-ipv4",
 		"--get-url",
 		"--format", "best[ext=mp4]/best",
-		videoURL,
-	)
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+	cmd := exec.Command(y.BinPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -115,13 +134,28 @@ func (y *YTDLP) GetStreamURL(videoURL string) (string, error) {
 	return string(bytes.TrimSpace(stdout.Bytes())), nil
 }
 
+// Version returns the yt-dlp version string.
+func (y *YTDLP) Version() (string, error) {
+	cmd := exec.Command(y.BinPath, "--version")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("yt-dlp --version error: %v, stderr: %s", err, stderr.String())
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+
 // GetVideoInfo fetches full metadata for a single video
 func (y *YTDLP) GetVideoInfo(videoURL string) (*VideoInfo, error) {
-	cmd := exec.Command(y.BinPath,
+	args := []string{
 		"--dump-json",
 		"--no-playlist",
-		videoURL,
-	)
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+	cmd := exec.Command(y.BinPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -174,11 +208,13 @@ func (y *YTDLP) GetDownloadURL(videoURL string, quality string) (string, string,
 		ext = "mp4"
 	}
 
-	cmd := exec.Command(y.BinPath,
+	args := []string{
 		"--get-url",
 		"--format", format,
-		videoURL,
-	)
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+	cmd := exec.Command(y.BinPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -211,6 +247,7 @@ func (y *YTDLP) GetVideoDurations(videoIDs []string) (map[string]int, error) {
 		"--skip-download",
 		"--no-playlist",
 	}
+	args = y.appendCookiesArgs(args)
 	args = append(args, urls...)
 
 	cmd := exec.Command(y.BinPath, args...)

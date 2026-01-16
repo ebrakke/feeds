@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -33,11 +35,12 @@ type Server struct {
 }
 
 type streamCacheEntry struct {
-	streamURL string
-	title     string
-	channel   string
+	streamURL  string
+	title      string
+	channel    string
 	channelURL string
-	expiresAt time.Time
+	viewCount  int64
+	expiresAt  time.Time
 }
 
 func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesFS fs.FS, packsFS fs.FS) (*Server, error) {
@@ -117,6 +120,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/videos/{id}/watched", s.handleAPIMarkUnwatched)
 
 	mux.HandleFunc("GET /api/download/{id}", s.handleDownload)
+	mux.HandleFunc("GET /api/stream/{id}", s.handleStreamProxy)
 
 	mux.HandleFunc("POST /api/import/url", s.handleAPIImportURL)
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
@@ -129,6 +133,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/packs/{name}", s.handlePackFile)
 
 	mux.HandleFunc("GET /api/config", s.handleAPIConfig)
+	mux.HandleFunc("POST /api/config/ytdlp-cookies", s.handleAPISetYTDLPCookies)
 }
 
 // Page handlers
@@ -148,7 +153,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAllRecent(w http.ResponseWriter, r *http.Request) {
-	videos, err := s.db.GetAllRecentVideos(100)
+	videos, total, err := s.db.GetAllRecentVideos(100, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -165,6 +170,7 @@ func (s *Server) handleAllRecent(w http.ResponseWriter, r *http.Request) {
 		"Title":       "Everything",
 		"Videos":      videos,
 		"ProgressMap": progressMap,
+		"Total":       total,
 	}
 	s.templates.ExecuteTemplate(w, "all", data)
 }
@@ -460,7 +466,7 @@ func (s *Server) handleFeedPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	videos, err := s.db.GetVideosByFeed(feedID, 50)
+	videos, _, err := s.db.GetVideosByFeed(feedID, 50, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -781,12 +787,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 
 	if ok && time.Now().Before(cached.expiresAt) {
 		// Cache hit - check subscription status and return
-		var existingChannelID int64
-		if cached.channelURL != "" {
-			if existing, _ := s.db.GetChannelByURL(cached.channelURL); existing != nil {
-				existingChannelID = existing.ID
-			}
-		}
+		channelMemberships := s.getChannelMemberships(cached.channelURL)
 
 		// Get saved progress for resume
 		var resumeFrom int
@@ -796,12 +797,13 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"title":             cached.title,
-			"channel":           cached.channel,
-			"streamURL":         cached.streamURL,
-			"channelURL":        cached.channelURL,
-			"existingChannelID": existingChannelID,
-			"resumeFrom":        resumeFrom,
+			"title":              cached.title,
+			"channel":            cached.channel,
+			"streamURL":          cached.streamURL,
+			"channelURL":         cached.channelURL,
+			"channelMemberships": channelMemberships,
+			"viewCount":          cached.viewCount,
+			"resumeFrom":         resumeFrom,
 		})
 		return
 	}
@@ -818,14 +820,8 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get stream URL
-	streamURL, err := s.ytdlp.GetStreamURL(videoURL)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to get stream URL"})
-		return
-	}
+	// Use proxy URL to avoid IP-locked stream URLs
+	streamURL := "/api/stream/" + videoID
 
 	// Resolve channel URL to canonical form for subscription
 	channelURL := ""
@@ -842,17 +838,13 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		title:      info.Title,
 		channel:    info.Channel,
 		channelURL: channelURL,
+		viewCount:  info.ViewCount,
 		expiresAt:  time.Now().Add(5 * time.Minute),
 	}
 	s.streamCacheMu.Unlock()
 
-	// Check if already subscribed
-	var existingChannelID int64
-	if channelURL != "" {
-		if existing, _ := s.db.GetChannelByURL(channelURL); existing != nil {
-			existingChannelID = existing.ID
-		}
-	}
+	// Get channel memberships (all feeds this channel is in)
+	channelMemberships := s.getChannelMemberships(channelURL)
 
 	// Get saved progress for resume
 	var resumeFrom int
@@ -862,13 +854,51 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"title":             info.Title,
-		"channel":           info.Channel,
-		"streamURL":         streamURL,
-		"channelURL":        channelURL,
-		"existingChannelID": existingChannelID,
-		"resumeFrom":        resumeFrom,
+		"title":              info.Title,
+		"channel":            info.Channel,
+		"streamURL":          streamURL,
+		"channelURL":         channelURL,
+		"channelMemberships": channelMemberships,
+		"viewCount":          info.ViewCount,
+		"resumeFrom":         resumeFrom,
 	})
+}
+
+// channelMembership represents a channel's membership in a feed
+type channelMembership struct {
+	ChannelID int64  `json:"channelId"`
+	FeedID    int64  `json:"feedId"`
+	FeedName  string `json:"feedName"`
+}
+
+// getChannelMemberships returns all feeds that contain a channel with the given URL
+func (s *Server) getChannelMemberships(channelURL string) []channelMembership {
+	if channelURL == "" {
+		return []channelMembership{}
+	}
+
+	channels, err := s.db.GetChannelsByURL(channelURL)
+	if err != nil || len(channels) == 0 {
+		return []channelMembership{}
+	}
+
+	memberships := make([]channelMembership, 0, len(channels))
+	for _, ch := range channels {
+		feed, err := s.db.GetFeed(ch.FeedID)
+		if err != nil {
+			continue
+		}
+		name := feed.Name
+		if feed.IsSystem {
+			name = "Inbox"
+		}
+		memberships = append(memberships, channelMembership{
+			ChannelID: ch.ID,
+			FeedID:    feed.ID,
+			FeedName:  name,
+		})
+	}
+	return memberships
 }
 
 // handleAPINearbyVideos returns videos from the same feed, positioned after the current video
@@ -932,6 +962,62 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to the direct URL - browser will download
 	http.Redirect(w, r, downloadURL, http.StatusFound)
+}
+
+func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
+
+	streamURL, err := s.ytdlp.GetStreamURL(videoURL)
+	if err != nil {
+		log.Printf("Failed to get stream URL for %s: %v", videoID, err)
+		http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, streamURL, nil)
+	if err != nil {
+		log.Printf("Failed to create upstream request for %s: %v", videoID, err)
+		http.Error(w, "Failed to start stream", http.StatusInternalServerError)
+		return
+	}
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Feeds/1.0)")
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		log.Printf("Upstream stream request failed for %s: %v", videoID, err)
+		http.Error(w, "Failed to start stream", http.StatusBadGateway)
+		return
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		log.Printf("Upstream stream response for %s: %s (content-type=%q, server=%q)", videoID, resp.Status, resp.Header.Get("Content-Type"), resp.Header.Get("Server"))
+	}
+	defer resp.Body.Close()
+
+	for key, values := range resp.Header {
+		if strings.EqualFold(key, "Transfer-Encoding") {
+			continue
+		}
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	if _, copyErr := io.Copy(w, resp.Body); copyErr != nil {
+		if errors.Is(copyErr, context.Canceled) || errors.Is(copyErr, context.DeadlineExceeded) {
+			return
+		}
+		log.Printf("Stream copy error for %s (client may have disconnected): %v", videoID, copyErr)
+	}
 }
 
 func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {

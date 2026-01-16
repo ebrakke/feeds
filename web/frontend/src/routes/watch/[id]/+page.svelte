@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel, getNearbyVideos } from '$lib/api';
-	import type { Feed, Video, WatchProgress } from '$lib/types';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos } from '$lib/api';
+	import type { Feed, Video, WatchProgress, ChannelMembership } from '$lib/types';
 
 	let videoId = $derived($page.params.id);
 
 	let title = $state('');
 	let channelName = $state('');
 	let channelURL = $state('');
-	let streamURL = $state('');
-	let existingChannelID = $state(0);
+	let viewCount = $state(0);
+
+	// Use proxy URL to bypass IP-locking on YouTube stream URLs
+	let streamURL = $derived(`/api/stream/${videoId}`);
+	let channelMemberships = $state<ChannelMembership[]>([]);
 	let feeds = $state<Feed[]>([]);
 
 	// Nearby videos
@@ -21,12 +24,13 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let subscribing = $state(false);
-	let subscribed = $state(false);
+	let removingChannelId = $state<number | null>(null);
 	let selectedFeedId = $state<string>('');
 
 	let player: HTMLVideoElement | null = null;
 	let lastSavedTime = 0;
 	let resumeFrom = $state(0);
+	let previousVideoId = '';
 
 	// Playback speed - persisted in localStorage
 	const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -65,17 +69,92 @@
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	}
 
+	function formatViewCount(count: number): string {
+		if (count <= 0) return '';
+		if (count >= 1_000_000_000) {
+			return `${(count / 1_000_000_000).toFixed(1)}B views`;
+		}
+		if (count >= 1_000_000) {
+			return `${(count / 1_000_000).toFixed(1)}M views`;
+		}
+		if (count >= 1_000) {
+			return `${(count / 1_000).toFixed(1)}K views`;
+		}
+		return `${count} views`;
+	}
+
 	function getWatchedPercent(video: Video): number {
 		const progress = nearbyProgressMap[video.id];
 		if (!progress || progress.duration_seconds === 0) return 0;
 		return Math.min(100, (progress.progress_seconds / progress.duration_seconds) * 100);
 	}
 
+	async function loadVideo(id: string) {
+		// Save progress from previous video before switching
+		if (player && !loading && previousVideoId) {
+			const currentTime = Math.floor(player.currentTime);
+			const duration = Math.floor(player.duration) || 0;
+			if (duration > 0) {
+				await updateProgress(previousVideoId, currentTime, duration).catch(() => {});
+			}
+		}
+		previousVideoId = id;
+
+		// Reset state for new video
+		loading = true;
+		error = null;
+		title = '';
+		channelName = '';
+		channelURL = '';
+		viewCount = 0;
+		channelMemberships = [];
+		resumeFrom = 0;
+		lastSavedTime = 0;
+		nearbyVideos = [];
+		nearbyProgressMap = {};
+		nearbyFeedId = 0;
+
+		// Load video info
+		try {
+			const data = await getVideoInfo(id);
+			title = data.title;
+			channelName = data.channel;
+			channelURL = data.channelURL;
+			viewCount = data.viewCount || 0;
+			channelMemberships = data.channelMemberships || [];
+			resumeFrom = data.resumeFrom || 0;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load video';
+		} finally {
+			loading = false;
+		}
+
+		// Load nearby videos (don't block on this)
+		try {
+			const nearby = await getNearbyVideos(id, 20);
+			nearbyVideos = nearby.videos;
+			nearbyProgressMap = nearby.progressMap;
+			nearbyFeedId = nearby.feedId;
+		} catch (e) {
+			console.warn('Failed to load nearby videos:', e);
+		}
+	}
+
+	// React to videoId changes
+	let currentLoadingId = '';
+	$effect(() => {
+		const id = videoId;
+		// Prevent re-running if we're already loading this video
+		if (id === currentLoadingId) return;
+		currentLoadingId = id;
+		loadVideo(id);
+	});
+
 	onMount(async () => {
 		// Load saved playback speed
 		loadSavedSpeed();
 
-		// Load feeds
+		// Load feeds (only once)
 		try {
 			feeds = await getFeeds();
 			// Pre-select Inbox if it exists
@@ -85,34 +164,6 @@
 			}
 		} catch (e) {
 			console.warn('Failed to load feeds:', e);
-		}
-
-		// Load video info
-		try {
-			const data = await getVideoInfo(videoId);
-			title = data.title;
-			channelName = data.channel;
-			channelURL = data.channelURL;
-			streamURL = data.streamURL;
-			existingChannelID = data.existingChannelID;
-			resumeFrom = data.resumeFrom || 0;
-			if (existingChannelID > 0) {
-				subscribed = true;
-			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load video';
-		} finally {
-			loading = false;
-		}
-
-		// Load nearby videos (don't block on this)
-		try {
-			const nearby = await getNearbyVideos(videoId, 20);
-			nearbyVideos = nearby.videos;
-			nearbyProgressMap = nearby.progressMap;
-			nearbyFeedId = nearby.feedId;
-		} catch (e) {
-			console.warn('Failed to load nearby videos:', e);
 		}
 	});
 
@@ -165,13 +216,32 @@
 
 		subscribing = true;
 		try {
-			await addChannel(parseInt(selectedFeedId), channelURL);
-			subscribed = true;
+			const channel = await addChannel(parseInt(selectedFeedId), channelURL);
+			const feed = feeds.find(f => f.id === parseInt(selectedFeedId));
+			const feedName = feed?.is_system ? 'Inbox' : (feed?.name || 'Feed');
+			channelMemberships = [...channelMemberships, {
+				channelId: channel.id,
+				feedId: parseInt(selectedFeedId),
+				feedName
+			}];
 		} catch (e) {
 			console.error('Failed to subscribe:', e);
 			alert(e instanceof Error ? e.message : 'Failed to subscribe');
 		} finally {
 			subscribing = false;
+		}
+	}
+
+	async function handleRemove(membership: ChannelMembership) {
+		removingChannelId = membership.channelId;
+		try {
+			await deleteChannel(membership.channelId);
+			channelMemberships = channelMemberships.filter(m => m.channelId !== membership.channelId);
+		} catch (e) {
+			console.error('Failed to remove channel:', e);
+			alert(e instanceof Error ? e.message : 'Failed to remove channel');
+		} finally {
+			removingChannelId = null;
 		}
 	}
 </script>
@@ -212,12 +282,13 @@
 			</div>
 		{:else}
 			<!-- svelte-ignore a11y_media_has_caption -->
-			<video
-				bind:this={player}
-				class="w-full h-full"
-				controls
-				playsinline
-				src={streamURL}
+				<video
+					bind:this={player}
+					class="w-full h-full"
+					controls
+					preload="none"
+					playsinline
+					src={streamURL}
 				onloadeddata={handleVideoLoaded}
 				ontimeupdate={handleTimeUpdate}
 				onpause={handlePause}
@@ -252,20 +323,50 @@
 	</h1>
 
 	<div class="flex items-center justify-between mb-4">
-		<!-- Channel name -->
-		<p class="text-gray-400">
+		<!-- Channel name and view count -->
+		<div class="text-gray-400">
 			{#if loading}
 				<span class="inline-block bg-gray-700 rounded h-4 w-32 animate-pulse"></span>
 			{:else}
-				{channelName}
+				<span>{channelName}</span>
+				{#if viewCount > 0}
+					<span class="text-gray-500 ml-2">{formatViewCount(viewCount)}</span>
+				{/if}
 			{/if}
-		</p>
+		</div>
 
 		<!-- Subscribe section -->
-		<div>
-			{#if subscribed}
-				<span class="text-green-400 text-sm">Subscribed!</span>
-			{:else if channelURL && feeds.length > 0}
+		<div class="flex flex-col items-end gap-2">
+			{#if channelMemberships.length > 0}
+				<div class="flex items-center gap-2 flex-wrap justify-end">
+					<span class="text-gray-400 text-sm">In:</span>
+					{#each channelMemberships as membership}
+						<span class="inline-flex items-center gap-1 bg-gray-800 text-sm px-2 py-1 rounded">
+							<a href="/feeds/{membership.feedId}" class="hover:text-blue-400">
+								{membership.feedName}
+							</a>
+							<button
+								onclick={() => handleRemove(membership)}
+								disabled={removingChannelId === membership.channelId}
+								class="text-gray-500 hover:text-red-400 disabled:opacity-50 ml-1"
+								title="Remove from {membership.feedName}"
+							>
+								{#if removingChannelId === membership.channelId}
+									<svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+								{:else}
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+									</svg>
+								{/if}
+							</button>
+						</span>
+					{/each}
+				</div>
+			{/if}
+			{#if channelURL && feeds.length > 0}
 				<div class="flex items-center gap-2">
 					<select
 						bind:value={selectedFeedId}
@@ -274,7 +375,7 @@
 						<option value="" disabled>Add to...</option>
 						{#each feeds as feed}
 							<option value={feed.id.toString()}>
-								{feed.is_system ? 'Inbox (default)' : feed.name}
+								{feed.is_system ? 'Inbox' : feed.name}
 							</option>
 						{/each}
 					</select>
@@ -289,7 +390,7 @@
 								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 							</svg>
 						{/if}
-						Subscribe
+						Add
 					</button>
 				</div>
 			{:else if feeds.length === 0 && !loading}
@@ -320,13 +421,13 @@
 					</a>
 				{/if}
 			</div>
-			<div class="flex gap-3 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+			<div class="max-h-[600px] overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
 				{#each nearbyVideos as video}
 					<a
 						href="/watch/{video.id}"
-						class="flex-shrink-0 w-64 group"
+						class="flex gap-3 group"
 					>
-						<div class="relative aspect-video bg-gray-800 rounded-lg overflow-hidden mb-2">
+						<div class="relative flex-shrink-0 w-40 aspect-video bg-gray-800 rounded-lg overflow-hidden">
 							{#if video.thumbnail}
 								<img
 									src={video.thumbnail}
@@ -335,7 +436,7 @@
 								/>
 							{:else}
 								<div class="w-full h-full flex items-center justify-center text-gray-600">
-									<svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
 									</svg>
 								</div>
@@ -356,10 +457,12 @@
 								</div>
 							{/if}
 						</div>
-						<h3 class="text-sm font-medium line-clamp-2 group-hover:text-blue-400 transition-colors">
-							{video.title}
-						</h3>
-						<p class="text-xs text-gray-500 mt-1">{video.channel_name}</p>
+						<div class="flex-1 min-w-0">
+							<h3 class="text-sm font-medium line-clamp-2 group-hover:text-blue-400 transition-colors">
+								{video.title}
+							</h3>
+							<p class="text-xs text-gray-500 mt-1">{video.channel_name}</p>
+						</div>
 					</a>
 				{/each}
 			</div>

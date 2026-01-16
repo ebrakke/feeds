@@ -2,25 +2,13 @@
 
 ## Development Environment
 
-**Important:** This app should be run in Docker Compose for development and testing. Do not run it directly on the host machine.
+**Important:** Run the app directly on the host for development and testing. Do not use Docker for this project.
 
-### Quick Start (Docker Dev)
+### Quick Start (Local Dev)
 
 ```bash
-# Start dev environment with hot reload for Go and Svelte
-make docker-dev
-
-# Or rebuild and start
-make docker-dev-build
-
-# View logs
-make docker-dev-logs
-
-# Stop
-make docker-dev-down
-
-# Shell into container
-make docker-dev-shell
+# Go server with hot reload + Svelte dev server
+make dev
 ```
 
 The dev environment runs:
@@ -28,30 +16,6 @@ The dev environment runs:
 - Svelte dev server on port 5173 (proxies API to Go)
 
 Access the app at http://localhost:5173
-
-### Production (Docker)
-
-```bash
-make docker-up      # Start
-make docker-down    # Stop
-make docker-logs    # View logs
-```
-
-### Manual Docker Commands
-
-```bash
-# Start development environment
-docker compose --profile dev up dev
-
-# Or run in background
-docker compose --profile dev up -d dev
-
-# View logs
-docker compose --profile dev logs -f
-
-# Rebuild after changes
-docker compose --profile dev up --build dev
-```
 
 ## Architecture
 
@@ -75,8 +39,8 @@ docker compose --profile dev up --build dev
 
 ## Testing
 
-Run tests inside the Docker container:
+Run tests locally:
 
 ```bash
-docker compose exec app go test ./...
+go test ./...
 ```

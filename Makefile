@@ -70,44 +70,10 @@ clean:
 	rm -rf dist/
 	rm -rf web/dist/
 
-# Docker development commands
-.PHONY: docker-dev
-docker-dev:
-	docker compose --profile dev up dev
-
-.PHONY: docker-dev-build
-docker-dev-build:
-	docker compose --profile dev up --build dev
-
-.PHONY: docker-dev-down
-docker-dev-down:
-	docker compose --profile dev down
-
-.PHONY: docker-dev-logs
-docker-dev-logs:
-	docker compose --profile dev logs -f dev
-
-.PHONY: docker-dev-shell
-docker-dev-shell:
-	docker compose --profile dev exec dev sh
-
-# Docker production commands
-.PHONY: docker-up
-docker-up:
-	docker compose up -d
-
-.PHONY: docker-down
-docker-down:
-	docker compose down
-
-.PHONY: docker-logs
-docker-logs:
-	docker compose logs -f
-
 # Development: run frontend dev server with API proxy (local, not Docker)
 .PHONY: dev
 dev:
-	cd web/frontend && bun run dev
+	@sh -c 'trap "kill 0" INT TERM; air & cd web/frontend && bun run dev -- --host 0.0.0.0'
 
 # Create dist directory
 dist:
@@ -133,22 +99,7 @@ help:
 	@echo "  make clean        - Remove build artifacts"
 	@echo "  make install      - Install to GOPATH/bin"
 	@echo ""
-	@echo "Docker development (recommended):"
-	@echo "  make docker-dev       - Start dev environment (Go + Svelte hot reload)"
-	@echo "  make docker-dev-build - Rebuild and start dev environment"
-	@echo "  make docker-dev-down  - Stop dev environment"
-	@echo "  make docker-dev-logs  - Follow dev container logs"
-	@echo "  make docker-dev-shell - Shell into dev container"
-	@echo ""
-	@echo "Docker production:"
-	@echo "  make docker-up        - Start production container"
-	@echo "  make docker-down      - Stop production container"
-	@echo "  make docker-logs      - Follow production logs"
-	@echo ""
-	@echo "Local development (without Docker):"
-	@echo "  make dev          - Run frontend dev server with API proxy"
-	@echo "  1. Run 'make build-go' to build Go server"
-	@echo "  2. Run './feeds' in one terminal"
-	@echo "  3. Run 'make dev' in another for frontend hot reload"
+	@echo "Local development:"
+	@echo "  make dev          - Run air (Go) + bun dev (frontend)"
 	@echo ""
 	@echo "Note: Cross-platform builds no longer require CGO (pure Go sqlite)."
