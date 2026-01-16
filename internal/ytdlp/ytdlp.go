@@ -114,27 +114,37 @@ func (y *YTDLP) GetLatestVideos(channelURL string, limit int) ([]VideoInfo, erro
 
 func formatForQuality(quality string, adaptive bool) string {
 	if adaptive {
+		// For higher resolutions (4K+), allow VP9/AV1 codecs since H.264 maxes at 1080p
+		// For 1080p and below, prefer H.264 (avc1) for better compatibility
 		switch quality {
+		case "4320": // 8K
+			return "bestvideo[height<=4320]+bestaudio/best[height<=4320]"
+		case "2160": // 4K
+			return "bestvideo[height<=2160]+bestaudio/best[height<=2160]"
+		case "1440":
+			return "bestvideo[height<=1440]+bestaudio/best[height<=1440]"
 		case "1080":
-			return "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=1080]"
+			return "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]"
 		case "720":
-			return "bestvideo[height<=720][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]"
+			return "bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]"
 		case "480":
-			return "bestvideo[height<=480][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=480]"
+			return "bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480]+bestaudio/best[height<=480]"
 		case "360":
-			return "bestvideo[height<=360][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=360]"
-		case "240":
-			return "bestvideo[height<=240][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=240]"
-		case "144":
-			return "bestvideo[height<=144][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=144]"
+			return "bestvideo[height<=360][vcodec^=avc1]+bestaudio/bestvideo[height<=360]+bestaudio/best[height<=360]"
 		case "best":
-			return "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best"
+			return "bestvideo+bestaudio/best"
 		default:
-			return "bestvideo[height<=720][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]"
+			return "bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]"
 		}
 	}
 
 	switch quality {
+	case "4320":
+		return "best[height<=4320]/best"
+	case "2160":
+		return "best[height<=2160]/best"
+	case "1440":
+		return "best[height<=1440]/best"
 	case "1080":
 		return "best[ext=mp4][height<=1080]/best[height<=1080]/best"
 	case "720":
@@ -143,12 +153,8 @@ func formatForQuality(quality string, adaptive bool) string {
 		return "best[ext=mp4][height<=480]/best[height<=480]/best"
 	case "360":
 		return "best[ext=mp4][height<=360]/best[height<=360]/best"
-	case "240":
-		return "best[ext=mp4][height<=240]/best[height<=240]/best"
-	case "144":
-		return "best[ext=mp4][height<=144]/best[height<=144]/best"
 	case "best":
-		return "best[ext=mp4]/best"
+		return "best"
 	default:
 		return "best[ext=mp4][height<=720]/best[height<=720]/best"
 	}

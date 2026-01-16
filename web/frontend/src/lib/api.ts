@@ -159,6 +159,13 @@ export async function markUnwatched(id: string): Promise<void> {
 	return fetchJSON(`/videos/${id}/watched`, { method: 'DELETE' });
 }
 
+export async function getStreamURLs(id: string, quality: string): Promise<{
+	videoURL: string;
+	audioURL: string;
+}> {
+	return fetchJSON(`/stream-urls/${id}?quality=${encodeURIComponent(quality)}`);
+}
+
 // Import
 export async function importFromURL(url: string): Promise<Feed> {
 	return fetchJSON('/import/url', {

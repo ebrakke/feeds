@@ -124,6 +124,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/download/{id}", s.handleDownload)
 	mux.HandleFunc("GET /api/stream/{id}", s.handleStreamProxy)
+	mux.HandleFunc("GET /api/stream-urls/{id}", s.handleStreamURLs)
 
 	mux.HandleFunc("POST /api/import/url", s.handleAPIImportURL)
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
@@ -968,6 +969,36 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to the direct URL - browser will download
 	http.Redirect(w, r, downloadURL, http.StatusFound)
+}
+
+// handleStreamURLs returns the raw video/audio stream URLs for MSE playback.
+// The browser fetches these directly, avoiding server-side proxy 403 issues.
+func (s *Server) handleStreamURLs(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
+	quality := r.URL.Query().Get("quality")
+	if quality == "" {
+		quality = "720"
+	}
+
+	// Try adaptive streams first (separate video + audio)
+	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
+	if err != nil {
+		log.Printf("Failed to get adaptive stream URLs for %s: %v", videoID, err)
+		// Fall back to combined stream
+		videoStreamURL, err = s.ytdlp.GetStreamURL(videoURL, quality)
+		if err != nil {
+			log.Printf("Failed to get stream URL for %s: %v", videoID, err)
+			http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
+			return
+		}
+		audioStreamURL = "" // Combined stream, no separate audio
+	}
+
+	jsonResponse(w, map[string]any{
+		"videoURL": videoStreamURL,
+		"audioURL": audioStreamURL,
+	})
 }
 
 func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {

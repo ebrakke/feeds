@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos } from '$lib/api';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getStreamURLs } from '$lib/api';
 	import type { Feed, Video, WatchProgress, ChannelMembership } from '$lib/types';
 
-	let videoId = $derived($page.params.id);
+	let videoId = $derived($page.params.id ?? '');
 
 	let title = $state('');
 	let channelName = $state('');
@@ -12,15 +12,21 @@
 	let viewCount = $state(0);
 	let thumbnailURL = $state('');
 
-	// Use proxy URL to bypass IP-locking on YouTube stream URLs
-	let streamBaseURL = $derived(`/api/stream/${videoId}`);
 	let selectedQuality = $state('720');
-	let streamURL = $state('');
 	let streamLoading = $state(false);
+	let streamError = $state<string | null>(null);
 	let actualHeight = $state(0);
 	let actualWidth = $state(0);
 	let channelMemberships = $state<ChannelMembership[]>([]);
 	let feeds = $state<Feed[]>([]);
+
+	// MSE player state
+	let videoElement = $state<HTMLVideoElement | null>(null);
+	let audioElement = $state<HTMLAudioElement | null>(null);
+	let isPlaying = $state(false);
+	let hasLoadedStream = $state(false);
+	let currentVideoURL = $state('');
+	let currentAudioURL = $state('');
 
 	// Nearby videos
 	let nearbyVideos = $state<Video[]>([]);
@@ -33,7 +39,6 @@
 	let removingChannelId = $state<number | null>(null);
 	let selectedFeedId = $state<string>('');
 
-	let player: HTMLVideoElement | null = null;
 	let lastSavedTime = 0;
 	let resumeFrom = $state(0);
 	let previousVideoId = '';
@@ -56,8 +61,11 @@
 
 	function setSpeed(speed: number) {
 		playbackSpeed = speed;
-		if (player) {
-			player.playbackRate = speed;
+		if (videoElement) {
+			videoElement.playbackRate = speed;
+		}
+		if (audioElement) {
+			audioElement.playbackRate = speed;
 		}
 		if (typeof localStorage !== 'undefined') {
 			localStorage.setItem('playbackSpeed', speed.toString());
@@ -97,9 +105,9 @@
 
 	async function loadVideo(id: string) {
 		// Save progress from previous video before switching
-		if (player && !loading && previousVideoId) {
-			const currentTime = Math.floor(player.currentTime);
-			const duration = Math.floor(player.duration) || 0;
+		if (videoElement && !loading && previousVideoId) {
+			const currentTime = Math.floor(videoElement.currentTime);
+			const duration = Math.floor(videoElement.duration) || 0;
 			if (duration > 0) {
 				await updateProgress(previousVideoId, currentTime, duration).catch(() => {});
 			}
@@ -114,8 +122,11 @@
 		channelURL = '';
 		viewCount = 0;
 		thumbnailURL = '';
-		streamURL = '';
 		streamLoading = false;
+		streamError = null;
+		hasLoadedStream = false;
+		currentVideoURL = '';
+		currentAudioURL = '';
 		actualHeight = 0;
 		actualWidth = 0;
 		channelMemberships = [];
@@ -141,6 +152,11 @@
 			loading = false;
 		}
 
+		// Auto-load stream at default quality (don't block on this)
+		if (!error) {
+			handleLoadStream();
+		}
+
 		// Load nearby videos (don't block on this)
 		try {
 			const nearby = await getNearbyVideos(id, 20);
@@ -152,14 +168,72 @@
 		}
 	}
 
-	function buildStreamURL(quality: string) {
-		const q = quality || '720';
-		return `${streamBaseURL}?quality=${encodeURIComponent(q)}`;
+	async function handleLoadStream() {
+		streamLoading = true;
+		streamError = null;
+
+		try {
+			const urls = await getStreamURLs(videoId, selectedQuality);
+			currentVideoURL = urls.videoURL;
+			currentAudioURL = urls.audioURL;
+			hasLoadedStream = true;
+
+			// If we have both video and audio URLs, set up synchronized playback
+			// The video element will be the main source, audio syncs to it
+			if (videoElement) {
+				videoElement.src = currentVideoURL;
+				videoElement.load();
+			}
+			if (audioElement && currentAudioURL) {
+				audioElement.src = currentAudioURL;
+				audioElement.load();
+			}
+		} catch (e) {
+			streamError = e instanceof Error ? e.message : 'Failed to load stream';
+			hasLoadedStream = false;
+		} finally {
+			streamLoading = false;
+		}
 	}
 
-	function handleLoadStream() {
-		streamLoading = true;
-		streamURL = buildStreamURL(selectedQuality);
+	// Sync audio with video playback
+	function syncAudioToVideo() {
+		if (!videoElement || !audioElement || !currentAudioURL) return;
+
+		// Sync time if drifted more than 0.3s
+		const drift = Math.abs(videoElement.currentTime - audioElement.currentTime);
+		if (drift > 0.3) {
+			audioElement.currentTime = videoElement.currentTime;
+		}
+	}
+
+	function handleVideoPlay() {
+		if (audioElement && currentAudioURL) {
+			audioElement.currentTime = videoElement?.currentTime || 0;
+			audioElement.play().catch(() => {});
+		}
+		isPlaying = true;
+	}
+
+	function handleVideoPause() {
+		if (audioElement && currentAudioURL) {
+			audioElement.pause();
+		}
+		isPlaying = false;
+		// Also save progress on pause
+		handlePause();
+	}
+
+	function handleVideoSeeked() {
+		if (audioElement && currentAudioURL && videoElement) {
+			audioElement.currentTime = videoElement.currentTime;
+		}
+	}
+
+	function handleVideoRateChange() {
+		if (audioElement && currentAudioURL && videoElement) {
+			audioElement.playbackRate = videoElement.playbackRate;
+		}
 	}
 
 	// React to videoId changes
@@ -190,36 +264,45 @@
 	});
 
 	onDestroy(() => {
-		if (player) {
+		if (videoElement) {
 			saveProgress();
-			player.pause();
+			videoElement.pause();
+		}
+		if (audioElement) {
+			audioElement.pause();
 		}
 	});
 
 	function handleVideoLoaded() {
-		if (player) {
+		if (videoElement) {
 			streamLoading = false;
 			// Apply saved playback speed
-			player.playbackRate = playbackSpeed;
+			videoElement.playbackRate = playbackSpeed;
+			if (audioElement) {
+				audioElement.playbackRate = playbackSpeed;
+			}
 
 			// Resume from saved position if available
 			if (resumeFrom > 0) {
-				player.currentTime = resumeFrom;
+				videoElement.currentTime = resumeFrom;
+				if (audioElement && currentAudioURL) {
+					audioElement.currentTime = resumeFrom;
+				}
 				lastSavedTime = resumeFrom;
 			}
 		}
 	}
 
 	function handleLoadedMetadata() {
-		if (!player) return;
-		actualHeight = player.videoHeight || 0;
-		actualWidth = player.videoWidth || 0;
+		if (!videoElement) return;
+		actualHeight = videoElement.videoHeight || 0;
+		actualWidth = videoElement.videoWidth || 0;
 	}
 
 	function saveProgress() {
-		if (!player) return;
-		const currentTime = Math.floor(player.currentTime);
-		const duration = Math.floor(player.duration) || 0;
+		if (!videoElement) return;
+		const currentTime = Math.floor(videoElement.currentTime);
+		const duration = Math.floor(videoElement.duration) || 0;
 
 		if (Math.abs(currentTime - lastSavedTime) >= 5 && duration > 0) {
 			lastSavedTime = currentTime;
@@ -232,9 +315,9 @@
 	}
 
 	function handlePause() {
-		if (!player) return;
-		const currentTime = Math.floor(player.currentTime);
-		const duration = Math.floor(player.duration) || 0;
+		if (!videoElement) return;
+		const currentTime = Math.floor(videoElement.currentTime);
+		const duration = Math.floor(videoElement.duration) || 0;
 		if (duration > 0) {
 			updateProgress(videoId, currentTime, duration).catch(() => {});
 		}
@@ -314,21 +397,48 @@
 			</div>
 		{:else}
 			<!-- svelte-ignore a11y_media_has_caption -->
-				<video
-					bind:this={player}
-					class="w-full h-full"
-					controls
-					preload="metadata"
-					playsinline
-					poster={thumbnailURL || undefined}
-					src={streamURL || undefined}
-					onloadedmetadata={handleLoadedMetadata}
-					onloadeddata={handleVideoLoaded}
-					ontimeupdate={handleTimeUpdate}
-					onpause={handlePause}
-				>
+			<video
+				bind:this={videoElement}
+				class="w-full h-full"
+				controls
+				preload="metadata"
+				playsinline
+				poster={thumbnailURL || undefined}
+				onloadedmetadata={handleLoadedMetadata}
+				onloadeddata={handleVideoLoaded}
+				ontimeupdate={() => { handleTimeUpdate(); syncAudioToVideo(); }}
+				onpause={handleVideoPause}
+				onplay={handleVideoPlay}
+				onseeked={handleVideoSeeked}
+				onratechange={handleVideoRateChange}
+			>
 				Your browser does not support the video tag.
 			</video>
+			<!-- Hidden audio element for dual-stream playback -->
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<audio
+				bind:this={audioElement}
+				preload="metadata"
+				class="hidden"
+			></audio>
+			{#if streamError}
+				<div class="absolute inset-0 flex items-center justify-center bg-gray-900/90">
+					<div class="text-center px-4">
+						<svg class="h-10 w-10 text-red-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+						</svg>
+						<p class="text-red-400 mb-2">{streamError}</p>
+						<a
+							href="https://www.youtube.com/watch?v={videoId}"
+							target="_blank"
+							rel="noopener"
+							class="text-blue-400 hover:text-blue-300 text-sm"
+						>
+							Watch on YouTube instead
+						</a>
+					</div>
+				</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -340,13 +450,14 @@
 				class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
 				disabled={streamLoading}
 			>
+				<option value="best">Best available</option>
+				<option value="4320">8K (4320p)</option>
+				<option value="2160">4K (2160p)</option>
+				<option value="1440">1440p</option>
 				<option value="1080">1080p</option>
 				<option value="720">720p</option>
 				<option value="480">480p</option>
 				<option value="360">360p</option>
-				<option value="240">240p</option>
-				<option value="144">144p</option>
-				<option value="best">Best available</option>
 			</select>
 			<button
 				onclick={handleLoadStream}
@@ -359,7 +470,7 @@
 						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 					</svg>
 				{/if}
-				{streamURL ? 'Apply quality' : 'Load video'}
+				{hasLoadedStream ? 'Change quality' : 'Load video'}
 			</button>
 			{#if actualHeight > 0}
 				<span class="text-xs text-gray-500">
