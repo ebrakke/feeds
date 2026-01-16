@@ -112,12 +112,57 @@ func (y *YTDLP) GetLatestVideos(channelURL string, limit int) ([]VideoInfo, erro
 	return videos, nil
 }
 
-// GetStreamURL extracts the direct stream URL for a video
-func (y *YTDLP) GetStreamURL(videoURL string) (string, error) {
+func formatForQuality(quality string, adaptive bool) string {
+	if adaptive {
+		switch quality {
+		case "1080":
+			return "bestvideo[height<=1080][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=1080]"
+		case "720":
+			return "bestvideo[height<=720][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]"
+		case "480":
+			return "bestvideo[height<=480][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=480]"
+		case "360":
+			return "bestvideo[height<=360][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=360]"
+		case "240":
+			return "bestvideo[height<=240][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=240]"
+		case "144":
+			return "bestvideo[height<=144][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=144]"
+		case "best":
+			return "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best"
+		default:
+			return "bestvideo[height<=720][ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[height<=720]"
+		}
+	}
+
+	switch quality {
+	case "1080":
+		return "best[ext=mp4][height<=1080]/best[height<=1080]/best"
+	case "720":
+		return "best[ext=mp4][height<=720]/best[height<=720]/best"
+	case "480":
+		return "best[ext=mp4][height<=480]/best[height<=480]/best"
+	case "360":
+		return "best[ext=mp4][height<=360]/best[height<=360]/best"
+	case "240":
+		return "best[ext=mp4][height<=240]/best[height<=240]/best"
+	case "144":
+		return "best[ext=mp4][height<=144]/best[height<=144]/best"
+	case "best":
+		return "best[ext=mp4]/best"
+	default:
+		return "best[ext=mp4][height<=720]/best[height<=720]/best"
+	}
+}
+
+// GetStreamURL extracts the direct stream URL for a video at a desired quality.
+// quality is a height like "1080", "720", etc. Use "best" to let yt-dlp decide.
+func (y *YTDLP) GetStreamURL(videoURL string, quality string) (string, error) {
+	format := formatForQuality(quality, false)
+
 	args := []string{
 		"--force-ipv4",
 		"--get-url",
-		"--format", "best[ext=mp4]/best",
+		"--format", format,
 	}
 	args = y.appendCookiesArgs(args)
 	args = append(args, videoURL)
@@ -132,6 +177,40 @@ func (y *YTDLP) GetStreamURL(videoURL string) (string, error) {
 	}
 
 	return string(bytes.TrimSpace(stdout.Bytes())), nil
+}
+
+// GetAdaptiveStreamURLs returns separate video+audio URLs when available.
+// If yt-dlp only returns a single URL, audioURL will be empty.
+func (y *YTDLP) GetAdaptiveStreamURLs(videoURL string, quality string) (string, string, error) {
+	format := formatForQuality(quality, true)
+	args := []string{
+		"--force-ipv4",
+		"--get-url",
+		"--format", format,
+		"--no-playlist",
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+	cmd := exec.Command(y.BinPath, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", "", fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", "", fmt.Errorf("yt-dlp returned empty stream URLs")
+	}
+	videoURLOut := strings.TrimSpace(lines[0])
+	audioURLOut := ""
+	if len(lines) > 1 {
+		audioURLOut = strings.TrimSpace(lines[1])
+	}
+	return videoURLOut, audioURLOut, nil
 }
 
 // Version returns the yt-dlp version string.

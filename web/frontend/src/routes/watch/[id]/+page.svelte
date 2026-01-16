@@ -13,7 +13,12 @@
 	let thumbnailURL = $state('');
 
 	// Use proxy URL to bypass IP-locking on YouTube stream URLs
-	let streamURL = $derived(`/api/stream/${videoId}`);
+	let streamBaseURL = $derived(`/api/stream/${videoId}`);
+	let selectedQuality = $state('720');
+	let streamURL = $state('');
+	let streamLoading = $state(false);
+	let actualHeight = $state(0);
+	let actualWidth = $state(0);
 	let channelMemberships = $state<ChannelMembership[]>([]);
 	let feeds = $state<Feed[]>([]);
 
@@ -109,6 +114,10 @@
 		channelURL = '';
 		viewCount = 0;
 		thumbnailURL = '';
+		streamURL = '';
+		streamLoading = false;
+		actualHeight = 0;
+		actualWidth = 0;
 		channelMemberships = [];
 		resumeFrom = 0;
 		lastSavedTime = 0;
@@ -141,6 +150,16 @@
 		} catch (e) {
 			console.warn('Failed to load nearby videos:', e);
 		}
+	}
+
+	function buildStreamURL(quality: string) {
+		const q = quality || '720';
+		return `${streamBaseURL}?quality=${encodeURIComponent(q)}`;
+	}
+
+	function handleLoadStream() {
+		streamLoading = true;
+		streamURL = buildStreamURL(selectedQuality);
 	}
 
 	// React to videoId changes
@@ -179,6 +198,7 @@
 
 	function handleVideoLoaded() {
 		if (player) {
+			streamLoading = false;
 			// Apply saved playback speed
 			player.playbackRate = playbackSpeed;
 
@@ -188,6 +208,12 @@
 				lastSavedTime = resumeFrom;
 			}
 		}
+	}
+
+	function handleLoadedMetadata() {
+		if (!player) return;
+		actualHeight = player.videoHeight || 0;
+		actualWidth = player.videoWidth || 0;
 	}
 
 	function saveProgress() {
@@ -295,7 +321,8 @@
 					preload="metadata"
 					playsinline
 					poster={thumbnailURL || undefined}
-					src={streamURL}
+					src={streamURL || undefined}
+					onloadedmetadata={handleLoadedMetadata}
 					onloadeddata={handleVideoLoaded}
 					ontimeupdate={handleTimeUpdate}
 					onpause={handlePause}
@@ -304,6 +331,43 @@
 			</video>
 		{/if}
 	</div>
+
+	{#if !loading && !error}
+		<div class="flex flex-wrap items-center gap-3 mb-4">
+			<label class="text-sm text-gray-400">Quality</label>
+			<select
+				bind:value={selectedQuality}
+				class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+				disabled={streamLoading}
+			>
+				<option value="1080">1080p</option>
+				<option value="720">720p</option>
+				<option value="480">480p</option>
+				<option value="360">360p</option>
+				<option value="240">240p</option>
+				<option value="144">144p</option>
+				<option value="best">Best available</option>
+			</select>
+			<button
+				onclick={handleLoadStream}
+				disabled={streamLoading}
+				class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-2"
+			>
+				{#if streamLoading}
+					<svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+				{/if}
+				{streamURL ? 'Apply quality' : 'Load video'}
+			</button>
+			{#if actualHeight > 0}
+				<span class="text-xs text-gray-500">
+					Actual: {actualHeight}p
+				</span>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Speed controls -->
 	{#if !loading && !error}
