@@ -41,3 +41,4 @@ go.work.sum
 yt-app
 tmp/
 data/
+web/dist/

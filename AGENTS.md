@@ -4,6 +4,13 @@
 
 **Important:** Run the app directly on the host for development and testing. Do not use Docker for this project.
 
+## Architecture
+
+- **Backend**: Go HTTP server with SQLite database
+- **Frontend**: SvelteKit SPA (Vite dev server)
+- **Production**: `make build` embeds `web/dist` into the Go binary
+- **Development**: Go server on `:8080`, Vite dev server on `:5173` (API proxied to Go)
+
 ### Quick Start (Local Dev)
 
 ```bash

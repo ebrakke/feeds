@@ -4,6 +4,13 @@
 
 Feeds is a self-hosted YouTube subscription manager that puts you back in control. No algorithms deciding what you see—just chronological updates from creators you choose, organized into feeds you curate.
 
+## Architecture
+
+- **Backend**: Go HTTP server with SQLite
+- **Frontend**: SvelteKit SPA (Vite dev server)
+- **Production**: `make build` builds the SPA and embeds `web/dist` into the Go binary
+- **Development**: Go server on `:8080`, Vite dev server on `:5173` (API proxied to Go)
+
 ## Why Feeds?
 
 YouTube's algorithm optimizes for engagement, not your interests. Feeds takes a different approach:
