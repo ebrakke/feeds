@@ -981,6 +981,12 @@ func (s *Server) handleStreamURLs(w http.ResponseWriter, r *http.Request) {
 		quality = "720"
 	}
 
+	// Try to get DASH manifest URL for adaptive streaming
+	dashURL, dashErr := s.ytdlp.GetDASHManifest(videoURL)
+	if dashErr != nil {
+		log.Printf("Failed to get DASH manifest for %s: %v", videoID, dashErr)
+	}
+
 	// Try adaptive streams first (separate video + audio)
 	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
 	if err != nil {
@@ -998,6 +1004,7 @@ func (s *Server) handleStreamURLs(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]any{
 		"videoURL": videoStreamURL,
 		"audioURL": audioStreamURL,
+		"dashURL":  dashURL,
 	})
 }
 

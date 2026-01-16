@@ -162,6 +162,7 @@ export async function markUnwatched(id: string): Promise<void> {
 export async function getStreamURLs(id: string, quality: string): Promise<{
 	videoURL: string;
 	audioURL: string;
+	dashURL: string;
 }> {
 	return fetchJSON(`/stream-urls/${id}?quality=${encodeURIComponent(quality)}`);
 }

@@ -219,6 +219,49 @@ func (y *YTDLP) GetAdaptiveStreamURLs(videoURL string, quality string) (string, 
 	return videoURLOut, audioURLOut, nil
 }
 
+// GetDASHManifest returns the DASH manifest URL for a video
+func (y *YTDLP) GetDASHManifest(videoURL string) (string, error) {
+	args := []string{
+		"--force-ipv4",
+		"--dump-json",
+		"--no-playlist",
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+	cmd := exec.Command(y.BinPath, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
+	}
+
+	// Parse JSON to extract manifest URL
+	var result struct {
+		ManifestURL     string `json:"manifest_url"`
+		RequestedFormats []struct {
+			ManifestURL string `json:"manifest_url"`
+		} `json:"requested_formats"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return "", fmt.Errorf("failed to parse yt-dlp output: %v", err)
+	}
+
+	// Try direct manifest URL first, then check requested_formats
+	if result.ManifestURL != "" {
+		return result.ManifestURL, nil
+	}
+	for _, f := range result.RequestedFormats {
+		if f.ManifestURL != "" {
+			return f.ManifestURL, nil
+		}
+	}
+
+	return "", fmt.Errorf("no DASH manifest URL found")
+}
+
 // Version returns the yt-dlp version string.
 func (y *YTDLP) Version() (string, error) {
 	cmd := exec.Command(y.BinPath, "--version")

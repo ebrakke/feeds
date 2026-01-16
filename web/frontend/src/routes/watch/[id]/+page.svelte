@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getStreamURLs } from '$lib/api';
 	import type { Feed, Video, WatchProgress, ChannelMembership } from '$lib/types';
+	import * as dashjs from 'dashjs';
 
 	let videoId = $derived($page.params.id ?? '');
 
@@ -20,13 +21,15 @@
 	let channelMemberships = $state<ChannelMembership[]>([]);
 	let feeds = $state<Feed[]>([]);
 
-	// MSE player state
+	// Dash.js player state
 	let videoElement = $state<HTMLVideoElement | null>(null);
 	let audioElement = $state<HTMLAudioElement | null>(null);
+	let dashPlayer: dashjs.MediaPlayerClass | null = null;
 	let isPlaying = $state(false);
 	let hasLoadedStream = $state(false);
 	let currentVideoURL = $state('');
 	let currentAudioURL = $state('');
+	let usingDash = $state(false);
 
 	// Nearby videos
 	let nearbyVideos = $state<Video[]>([]);
@@ -64,7 +67,7 @@
 		if (videoElement) {
 			videoElement.playbackRate = speed;
 		}
-		if (audioElement) {
+		if (!usingDash && audioElement) {
 			audioElement.playbackRate = speed;
 		}
 		if (typeof localStorage !== 'undefined') {
@@ -113,6 +116,9 @@
 			}
 		}
 		previousVideoId = id;
+
+		// Clean up previous video
+		destroyDashPlayer();
 
 		// Reset state for new video
 		loading = true;
@@ -168,9 +174,20 @@
 		}
 	}
 
+	function destroyDashPlayer() {
+		if (dashPlayer) {
+			dashPlayer.reset();
+			dashPlayer = null;
+		}
+		usingDash = false;
+	}
+
 	async function handleLoadStream() {
 		streamLoading = true;
 		streamError = null;
+
+		// Clean up existing dash player
+		destroyDashPlayer();
 
 		try {
 			const urls = await getStreamURLs(videoId, selectedQuality);
@@ -178,15 +195,44 @@
 			currentAudioURL = urls.audioURL;
 			hasLoadedStream = true;
 
-			// If we have both video and audio URLs, set up synchronized playback
-			// The video element will be the main source, audio syncs to it
-			if (videoElement) {
+			if (!videoElement) {
+				throw new Error('Video element not ready');
+			}
+
+			// Try DASH first for better buffering and adaptive streaming
+			if (urls.dashURL) {
+				try {
+					dashPlayer = dashjs.MediaPlayer().create();
+					dashPlayer.initialize(videoElement, urls.dashURL, false);
+
+					// Configure for better buffering
+					dashPlayer.updateSettings({
+						streaming: {
+							buffer: {
+								fastSwitchEnabled: true,
+								bufferPruningInterval: 30,
+								bufferToKeep: 30
+							}
+						}
+					});
+
+					usingDash = true;
+					console.log('Using DASH streaming');
+				} catch (dashError) {
+					console.warn('DASH init failed, falling back to direct URLs:', dashError);
+					destroyDashPlayer();
+				}
+			}
+
+			// Fallback to direct video+audio URLs if DASH not available
+			if (!usingDash) {
 				videoElement.src = currentVideoURL;
 				videoElement.load();
-			}
-			if (audioElement && currentAudioURL) {
-				audioElement.src = currentAudioURL;
-				audioElement.load();
+
+				if (audioElement && currentAudioURL) {
+					audioElement.src = currentAudioURL;
+					audioElement.load();
+				}
 			}
 		} catch (e) {
 			streamError = e instanceof Error ? e.message : 'Failed to load stream';
@@ -196,8 +242,9 @@
 		}
 	}
 
-	// Sync audio with video playback
+	// Sync audio with video playback (only needed for non-DASH mode)
 	function syncAudioToVideo() {
+		if (usingDash) return; // DASH handles audio sync internally
 		if (!videoElement || !audioElement || !currentAudioURL) return;
 
 		// Sync time if drifted more than 0.3s
@@ -208,7 +255,7 @@
 	}
 
 	function handleVideoPlay() {
-		if (audioElement && currentAudioURL) {
+		if (!usingDash && audioElement && currentAudioURL) {
 			audioElement.currentTime = videoElement?.currentTime || 0;
 			audioElement.play().catch(() => {});
 		}
@@ -216,7 +263,7 @@
 	}
 
 	function handleVideoPause() {
-		if (audioElement && currentAudioURL) {
+		if (!usingDash && audioElement && currentAudioURL) {
 			audioElement.pause();
 		}
 		isPlaying = false;
@@ -225,13 +272,13 @@
 	}
 
 	function handleVideoSeeked() {
-		if (audioElement && currentAudioURL && videoElement) {
+		if (!usingDash && audioElement && currentAudioURL && videoElement) {
 			audioElement.currentTime = videoElement.currentTime;
 		}
 	}
 
 	function handleVideoRateChange() {
-		if (audioElement && currentAudioURL && videoElement) {
+		if (!usingDash && audioElement && currentAudioURL && videoElement) {
 			audioElement.playbackRate = videoElement.playbackRate;
 		}
 	}
@@ -264,8 +311,9 @@
 	});
 
 	onDestroy(() => {
+		saveProgress();
+		destroyDashPlayer();
 		if (videoElement) {
-			saveProgress();
 			videoElement.pause();
 		}
 		if (audioElement) {
@@ -278,15 +326,19 @@
 			streamLoading = false;
 			// Apply saved playback speed
 			videoElement.playbackRate = playbackSpeed;
-			if (audioElement) {
+			if (!usingDash && audioElement) {
 				audioElement.playbackRate = playbackSpeed;
 			}
 
 			// Resume from saved position if available
 			if (resumeFrom > 0) {
-				videoElement.currentTime = resumeFrom;
-				if (audioElement && currentAudioURL) {
-					audioElement.currentTime = resumeFrom;
+				if (usingDash && dashPlayer) {
+					dashPlayer.seek(resumeFrom);
+				} else {
+					videoElement.currentTime = resumeFrom;
+					if (audioElement && currentAudioURL) {
+						audioElement.currentTime = resumeFrom;
+					}
 				}
 				lastSavedTime = resumeFrom;
 			}
@@ -401,7 +453,7 @@
 				bind:this={videoElement}
 				class="w-full h-full"
 				controls
-				preload="metadata"
+				preload="auto"
 				playsinline
 				poster={thumbnailURL || undefined}
 				onloadedmetadata={handleLoadedMetadata}
@@ -418,7 +470,7 @@
 			<!-- svelte-ignore a11y_media_has_caption -->
 			<audio
 				bind:this={audioElement}
-				preload="metadata"
+				preload="auto"
 				class="hidden"
 			></audio>
 			{#if streamError}
