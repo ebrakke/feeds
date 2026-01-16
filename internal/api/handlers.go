@@ -125,6 +125,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/download/{id}", s.handleDownload)
 	mux.HandleFunc("GET /api/stream/{id}", s.handleStreamProxy)
 	mux.HandleFunc("GET /api/stream-urls/{id}", s.handleStreamURLs)
+	mux.HandleFunc("GET /api/proxy-stream/{id}/{type}", s.handleProxyStream)
 
 	mux.HandleFunc("POST /api/import/url", s.handleAPIImportURL)
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
@@ -971,41 +972,139 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, downloadURL, http.StatusFound)
 }
 
-// handleStreamURLs returns the raw video/audio stream URLs for MSE playback.
-// The browser fetches these directly, avoiding server-side proxy 403 issues.
+// handleStreamURLs returns proxy URLs for video/audio streams.
+// The browser fetches through the proxy to avoid YouTube 403 errors and get proper buffering.
 func (s *Server) handleStreamURLs(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
 	quality := r.URL.Query().Get("quality")
 	if quality == "" {
 		quality = "720"
 	}
 
-	// Try to get DASH manifest URL for adaptive streaming
-	dashURL, dashErr := s.ytdlp.GetDASHManifest(videoURL)
-	if dashErr != nil {
-		log.Printf("Failed to get DASH manifest for %s: %v", videoID, dashErr)
+	// Return proxy URLs that the browser will use - these support range requests
+	jsonResponse(w, map[string]any{
+		"videoURL": fmt.Sprintf("/api/proxy-stream/%s/video?quality=%s", videoID, quality),
+		"audioURL": fmt.Sprintf("/api/proxy-stream/%s/audio?quality=%s", videoID, quality),
+		"dashURL":  "", // DASH not available for YouTube
+	})
+}
+
+// streamURLCache caches resolved stream URLs temporarily to avoid re-fetching on range requests
+var streamURLCache = struct {
+	sync.RWMutex
+	urls map[string]cachedStreamURLs
+}{urls: make(map[string]cachedStreamURLs)}
+
+type cachedStreamURLs struct {
+	videoURL  string
+	audioURL  string
+	expiresAt time.Time
+}
+
+func (s *Server) getOrFetchStreamURLs(videoID, quality string) (string, string, error) {
+	cacheKey := videoID + ":" + quality
+
+	// Check cache first
+	streamURLCache.RLock()
+	cached, ok := streamURLCache.urls[cacheKey]
+	streamURLCache.RUnlock()
+
+	if ok && time.Now().Before(cached.expiresAt) {
+		return cached.videoURL, cached.audioURL, nil
 	}
 
-	// Try adaptive streams first (separate video + audio)
+	// Fetch fresh URLs
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
 	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
 	if err != nil {
-		log.Printf("Failed to get adaptive stream URLs for %s: %v", videoID, err)
 		// Fall back to combined stream
 		videoStreamURL, err = s.ytdlp.GetStreamURL(videoURL, quality)
 		if err != nil {
-			log.Printf("Failed to get stream URL for %s: %v", videoID, err)
-			http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
-			return
+			return "", "", err
 		}
-		audioStreamURL = "" // Combined stream, no separate audio
+		audioStreamURL = ""
 	}
 
-	jsonResponse(w, map[string]any{
-		"videoURL": videoStreamURL,
-		"audioURL": audioStreamURL,
-		"dashURL":  dashURL,
-	})
+	// Cache for 5 minutes (YouTube URLs typically expire in ~6 hours but we refresh more often)
+	streamURLCache.Lock()
+	streamURLCache.urls[cacheKey] = cachedStreamURLs{
+		videoURL:  videoStreamURL,
+		audioURL:  audioStreamURL,
+		expiresAt: time.Now().Add(5 * time.Minute),
+	}
+	streamURLCache.Unlock()
+
+	return videoStreamURL, audioStreamURL, nil
+}
+
+// handleProxyStream proxies video or audio stream with range request support
+func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+	streamType := r.PathValue("type") // "video" or "audio"
+	quality := r.URL.Query().Get("quality")
+	if quality == "" {
+		quality = "720"
+	}
+
+	videoStreamURL, audioStreamURL, err := s.getOrFetchStreamURLs(videoID, quality)
+	if err != nil {
+		log.Printf("Failed to get stream URLs for %s: %v", videoID, err)
+		http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
+		return
+	}
+
+	var targetURL string
+	switch streamType {
+	case "video":
+		targetURL = videoStreamURL
+	case "audio":
+		if audioStreamURL == "" {
+			http.Error(w, "No separate audio stream available", http.StatusNotFound)
+			return
+		}
+		targetURL = audioStreamURL
+	default:
+		http.Error(w, "Invalid stream type", http.StatusBadRequest)
+		return
+	}
+
+	// Create upstream request
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL, nil)
+	if err != nil {
+		log.Printf("Failed to create upstream request for %s/%s: %v", videoID, streamType, err)
+		http.Error(w, "Failed to start stream", http.StatusInternalServerError)
+		return
+	}
+
+	// Forward range header for seeking support
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		log.Printf("Upstream stream request failed for %s/%s: %v", videoID, streamType, err)
+		http.Error(w, "Failed to start stream", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
