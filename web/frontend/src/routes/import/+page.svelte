@@ -676,13 +676,13 @@
 					>
 						<h3 class="font-semibold">{pack.name}</h3>
 						<p class="text-sm text-gray-400">{pack.description}</p>
-						{#if pack.tags.length > 0}
-							<div class="flex gap-1 mt-2">
-								{#each pack.tags as tag}
-									<span class="text-xs bg-gray-600 rounded px-2 py-0.5">{tag}</span>
-								{/each}
-							</div>
-						{/if}
+							{#if pack.tags && pack.tags.length > 0}
+								<div class="flex gap-1 mt-2">
+									{#each pack.tags ?? [] as tag}
+										<span class="text-xs bg-gray-600 rounded px-2 py-0.5">{tag}</span>
+									{/each}
+								</div>
+							{/if}
 					</button>
 				{/each}
 			</div>

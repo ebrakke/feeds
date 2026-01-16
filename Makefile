@@ -71,8 +71,15 @@ clean:
 	rm -rf web/dist/
 
 # Development: run frontend dev server with API proxy (local, not Docker)
+.PHONY: ensure-frontend-dist
+ensure-frontend-dist:
+	@if [ ! -f web/dist/index.html ]; then \
+		echo "web/dist missing; building frontend..."; \
+		cd web/frontend && bun install && bun run build; \
+	fi
+
 .PHONY: dev
-dev:
+dev: ensure-frontend-dist
 	@sh -c 'trap "kill 0" INT TERM; air & cd web/frontend && bun run dev -- --host 0.0.0.0'
 
 # Create dist directory
