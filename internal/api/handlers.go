@@ -39,6 +39,7 @@ type streamCacheEntry struct {
 	title      string
 	channel    string
 	channelURL string
+	thumbnail  string
 	viewCount  int64
 	expiresAt  time.Time
 }
@@ -801,6 +802,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 			"channel":            cached.channel,
 			"streamURL":          cached.streamURL,
 			"channelURL":         cached.channelURL,
+			"thumbnail":          cached.thumbnail,
 			"channelMemberships": channelMemberships,
 			"viewCount":          cached.viewCount,
 			"resumeFrom":         resumeFrom,
@@ -838,6 +840,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		title:      info.Title,
 		channel:    info.Channel,
 		channelURL: channelURL,
+		thumbnail:  info.GetBestThumbnail(),
 		viewCount:  info.ViewCount,
 		expiresAt:  time.Now().Add(5 * time.Minute),
 	}
@@ -858,6 +861,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		"channel":            info.Channel,
 		"streamURL":          streamURL,
 		"channelURL":         channelURL,
+		"thumbnail":          info.GetBestThumbnail(),
 		"channelMemberships": channelMemberships,
 		"viewCount":          info.ViewCount,
 		"resumeFrom":         resumeFrom,

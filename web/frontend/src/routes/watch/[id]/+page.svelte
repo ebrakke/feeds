@@ -10,6 +10,7 @@
 	let channelName = $state('');
 	let channelURL = $state('');
 	let viewCount = $state(0);
+	let thumbnailURL = $state('');
 
 	// Use proxy URL to bypass IP-locking on YouTube stream URLs
 	let streamURL = $derived(`/api/stream/${videoId}`);
@@ -107,6 +108,7 @@
 		channelName = '';
 		channelURL = '';
 		viewCount = 0;
+		thumbnailURL = '';
 		channelMemberships = [];
 		resumeFrom = 0;
 		lastSavedTime = 0;
@@ -121,6 +123,7 @@
 			channelName = data.channel;
 			channelURL = data.channelURL;
 			viewCount = data.viewCount || 0;
+			thumbnailURL = data.thumbnail || '';
 			channelMemberships = data.channelMemberships || [];
 			resumeFrom = data.resumeFrom || 0;
 		} catch (e) {
@@ -248,6 +251,9 @@
 
 <svelte:head>
 	<title>{title || 'Watch'} - Feeds</title>
+	{#if thumbnailURL}
+		<link rel="preload" as="image" href={thumbnailURL} />
+	{/if}
 </svelte:head>
 
 <div class="max-w-4xl mx-auto">
@@ -286,13 +292,14 @@
 					bind:this={player}
 					class="w-full h-full"
 					controls
-					preload="none"
+					preload="metadata"
 					playsinline
+					poster={thumbnailURL || undefined}
 					src={streamURL}
-				onloadeddata={handleVideoLoaded}
-				ontimeupdate={handleTimeUpdate}
-				onpause={handlePause}
-			>
+					onloadeddata={handleVideoLoaded}
+					ontimeupdate={handleTimeUpdate}
+					onpause={handlePause}
+				>
 				Your browser does not support the video tag.
 			</video>
 		{/if}

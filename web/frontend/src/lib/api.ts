@@ -131,6 +131,7 @@ export async function getVideoInfo(id: string): Promise<{
 	channelMemberships: ChannelMembership[];
 	viewCount: number;
 	resumeFrom: number;
+	thumbnail?: string;
 }> {
 	return fetchJSON(`/videos/${id}/info`);
 }
