@@ -4,7 +4,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 )
 
@@ -15,10 +14,7 @@ const (
 )
 
 // VideoCache manages cached muxed video files
-type VideoCache struct {
-	mu     sync.RWMutex
-	muxing map[string]chan struct{} // tracks in-progress muxing operations
-}
+type VideoCache struct{}
 
 // NewVideoCache creates a new video cache manager
 func NewVideoCache() *VideoCache {
@@ -27,9 +23,7 @@ func NewVideoCache() *VideoCache {
 		log.Printf("Warning: could not create video cache dir: %v", err)
 	}
 
-	vc := &VideoCache{
-		muxing: make(map[string]chan struct{}),
-	}
+	vc := &VideoCache{}
 
 	// Start cleanup goroutine
 	go vc.cleanupLoop()
@@ -69,31 +63,6 @@ func (vc *VideoCache) Get(key string) (string, bool) {
 	}
 
 	return path, true
-}
-
-// WaitForMuxing waits for an in-progress muxing operation to complete
-// Returns true if we should proceed with muxing, false if another goroutine is handling it
-func (vc *VideoCache) WaitForMuxing(key string) (shouldMux bool, done func()) {
-	vc.mu.Lock()
-
-	if ch, exists := vc.muxing[key]; exists {
-		// Another goroutine is muxing, wait for it
-		vc.mu.Unlock()
-		<-ch
-		return false, nil
-	}
-
-	// We're the first, create a channel for others to wait on
-	ch := make(chan struct{})
-	vc.muxing[key] = ch
-	vc.mu.Unlock()
-
-	return true, func() {
-		vc.mu.Lock()
-		delete(vc.muxing, key)
-		close(ch)
-		vc.mu.Unlock()
-	}
 }
 
 // cleanupLoop periodically removes expired cache files
