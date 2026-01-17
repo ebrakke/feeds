@@ -1083,49 +1083,152 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 
 	cacheKey := CacheKey(videoID, quality)
 
-	// Check cache first
+	// Check cache first - if we have a muxed file, serve it (best quality + seeking)
 	if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
 		log.Printf("Serving cached video: %s", cacheKey)
 		http.ServeFile(w, r, cachedPath)
 		return
 	}
 
-	// Check if another request is already muxing this video
-	shouldMux, done := s.videoCache.WaitForMuxing(cacheKey)
-	if !shouldMux {
-		// Another goroutine finished muxing, check cache again
-		if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
-			http.ServeFile(w, r, cachedPath)
-			return
-		}
-		// Muxing failed, fall through to try again or fallback
-	}
+	// No cache - stream muxed video directly (720p immediately)
+	// This uses fragmented MP4 which allows playback to start immediately
+	// while ffmpeg continues muxing in the background
+	s.streamMuxedVideo(w, r, videoID, quality, cacheKey)
+}
 
-	if done != nil {
-		defer done()
-	}
-
-	// Get video and audio URLs
+// streamMuxedVideo streams muxed video directly using fragmented MP4
+// This allows playback to start immediately while ffmpeg continues muxing
+func (s *Server) streamMuxedVideo(w http.ResponseWriter, r *http.Request, videoID, quality, cacheKey string) {
 	videoURL := "https://www.youtube.com/watch?v=" + videoID
+
+	// Get adaptive stream URLs (separate video + audio for 720p+)
 	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
 	if err != nil {
-		log.Printf("Failed to get adaptive URLs for %s: %v, trying progressive", videoID, err)
+		log.Printf("Failed to get adaptive URLs for %s: %v", videoID, err)
+		// Fall back to progressive
 		s.serveProgressiveFallback(w, r, videoID, quality)
 		return
 	}
 
-	// If no separate audio, try progressive
+	// If no separate audio, fall back to progressive (already combined)
 	if audioStreamURL == "" {
 		log.Printf("No separate audio for %s, using progressive", videoID)
 		s.serveProgressiveFallback(w, r, videoID, quality)
 		return
 	}
 
-	// Mux video and audio to cache file
+	log.Printf("Streaming muxed video for %s at quality %s", videoID, quality)
+
+	// Use fragmented MP4 for immediate playback
+	// frag_keyframe: create fragment at each keyframe
+	// empty_moov: don't require full moov atom upfront
+	// default_base_moof: required for compatibility
+	cmd := exec.CommandContext(r.Context(),
+		"ffmpeg",
+		"-i", videoStreamURL,
+		"-i", audioStreamURL,
+		"-c", "copy",
+		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
+		"-f", "mp4",
+		"pipe:1",
+	)
+
+	// Capture stderr for debugging
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	// Get stdout pipe
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Printf("Failed to create stdout pipe: %v", err)
+		s.serveProgressiveFallback(w, r, videoID, quality)
+		return
+	}
+
+	// Start ffmpeg
+	if err := cmd.Start(); err != nil {
+		log.Printf("Failed to start ffmpeg: %v", err)
+		s.serveProgressiveFallback(w, r, videoID, quality)
+		return
+	}
+
+	// Set headers for streaming
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Cache-Control", "no-cache")
+
+	// Stream output to client
+	// Also write to cache file for future requests
+	cachePath := s.videoCache.CachePath(cacheKey)
+	tempPath := cachePath + ".tmp"
+
+	cacheFile, cacheErr := os.Create(tempPath)
+	if cacheErr != nil {
+		log.Printf("Failed to create cache file: %v", cacheErr)
+		// Continue without caching
+	}
+
+	// Use MultiWriter to write to both response and cache
+	var writer io.Writer = w
+	if cacheFile != nil {
+		writer = io.MultiWriter(w, cacheFile)
+	}
+
+	_, copyErr := io.Copy(writer, stdout)
+
+	// Wait for ffmpeg to finish
+	cmdErr := cmd.Wait()
+
+	// Handle cache file
+	if cacheFile != nil {
+		cacheFile.Close()
+		if cmdErr == nil && copyErr == nil {
+			// Muxing succeeded - but fragmented MP4 isn't ideal for seeking
+			// So we'll re-mux with faststart in the background for better seeking
+			os.Remove(tempPath) // Remove fragmented version
+			go s.muxInBackground(videoID, quality, cacheKey)
+		} else {
+			os.Remove(tempPath)
+		}
+	}
+
+	if cmdErr != nil {
+		// Only log if it wasn't due to client disconnect
+		if r.Context().Err() == nil {
+			log.Printf("ffmpeg error for %s: %v, stderr: %s", videoID, cmdErr, stderr.String())
+		}
+	}
+}
+
+// muxInBackground fetches video+audio and muxes them for future requests
+func (s *Server) muxInBackground(videoID, quality, cacheKey string) {
+	// Check if already muxing
+	shouldMux, done := s.videoCache.WaitForMuxing(cacheKey)
+	if !shouldMux {
+		return // Another goroutine is handling it
+	}
+	defer done()
+
+	// Double-check cache (might have been created while waiting)
+	if _, ok := s.videoCache.Get(cacheKey); ok {
+		return
+	}
+
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
+	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
+	if err != nil {
+		log.Printf("Background mux: failed to get adaptive URLs for %s: %v", videoID, err)
+		return
+	}
+
+	if audioStreamURL == "" {
+		log.Printf("Background mux: no separate audio for %s, skipping", videoID)
+		return
+	}
+
 	outputPath := s.videoCache.CachePath(cacheKey)
 	tempPath := outputPath + ".tmp"
 
-	log.Printf("Muxing video %s at quality %s", videoID, quality)
+	log.Printf("Background mux: starting for %s at quality %s", videoID, quality)
 
 	cmd := exec.Command(
 		"ffmpeg",
@@ -1142,22 +1245,18 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Printf("ffmpeg mux failed for %s: %v, stderr: %s", videoID, err, stderr.String())
+		log.Printf("Background mux: ffmpeg failed for %s: %v, stderr: %s", videoID, err, stderr.String())
 		os.Remove(tempPath)
-		s.serveProgressiveFallback(w, r, videoID, quality)
 		return
 	}
 
-	// Move temp file to final location
 	if err := os.Rename(tempPath, outputPath); err != nil {
-		log.Printf("Failed to rename temp file for %s: %v", videoID, err)
+		log.Printf("Background mux: failed to rename for %s: %v", videoID, err)
 		os.Remove(tempPath)
-		s.serveProgressiveFallback(w, r, videoID, quality)
 		return
 	}
 
-	log.Printf("Successfully muxed video %s, serving from cache", videoID)
-	http.ServeFile(w, r, outputPath)
+	log.Printf("Background mux: completed for %s, cached for future requests", videoID)
 }
 
 func (s *Server) serveProgressiveFallback(w http.ResponseWriter, r *http.Request, videoID, quality string) {

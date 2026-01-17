@@ -138,25 +138,18 @@ func formatForQuality(quality string, adaptive bool) string {
 		}
 	}
 
+	// For progressive (combined) streams, YouTube typically only offers up to 720p
+	// Higher quality requires separate video+audio streams (adaptive mode)
+	// We use "best" to get the highest available combined stream
 	switch quality {
-	case "4320":
-		return "best[height<=4320]/best"
-	case "2160":
-		return "best[height<=2160]/best"
-	case "1440":
-		return "best[height<=1440]/best"
-	case "1080":
-		return "best[ext=mp4][height<=1080]/best[height<=1080]/best"
-	case "720":
-		return "best[ext=mp4][height<=720]/best[height<=720]/best"
-	case "480":
-		return "best[ext=mp4][height<=480]/best[height<=480]/best"
 	case "360":
 		return "best[ext=mp4][height<=360]/best[height<=360]/best"
-	case "best":
-		return "best"
+	case "480":
+		return "best[ext=mp4][height<=480]/best[height<=480]/best"
 	default:
-		return "best[ext=mp4][height<=720]/best[height<=720]/best"
+		// For 720p+, just get the best available combined stream
+		// YouTube combined streams rarely exceed 720p
+		return "best[ext=mp4]/best"
 	}
 }
 

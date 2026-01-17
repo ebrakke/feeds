@@ -194,6 +194,7 @@
 		segments = [];
 		lastSkippedSegment = null;
 		showSkipNotice = false;
+		lastLoadedURL = '';
 
 		try {
 			const data = await getVideoInfo(id);
@@ -235,29 +236,33 @@
 		loadVideo(id);
 	});
 
+	let lastLoadedURL = '';
 	$effect(() => {
 		if (loading || error || !videoElement) return;
 
-		// Quality changed, update video source
+		// Build the stream URL
 		const newURL = `/api/stream/${videoId}?quality=${selectedQuality}`;
-		if (videoElement.src !== newURL && videoElement.src !== location.origin + newURL) {
-			const currentTime = videoElement.currentTime;
-			const wasPlaying = !videoElement.paused;
-			const video = videoElement;  // Capture reference
 
-			video.src = newURL;
-			video.load();
+		// Skip if we already loaded this exact URL
+		if (lastLoadedURL === newURL) return;
+		lastLoadedURL = newURL;
 
-			// Restore position after load
-			video.addEventListener('loadedmetadata', () => {
-				if (currentTime > 0) {
-					video.currentTime = currentTime;
-				}
-				if (wasPlaying) {
-					video.play().catch(() => {});
-				}
-			}, { once: true });
-		}
+		const currentTime = videoElement.currentTime;
+		const wasPlaying = !videoElement.paused;
+		const video = videoElement;
+
+		video.src = newURL;
+		video.load();
+
+		// Restore position after load
+		video.addEventListener('loadedmetadata', () => {
+			if (currentTime > 0) {
+				video.currentTime = currentTime;
+			}
+			if (wasPlaying) {
+				video.play().catch(() => {});
+			}
+		}, { once: true });
 	});
 
 	onMount(async () => {
