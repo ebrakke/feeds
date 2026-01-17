@@ -4,6 +4,22 @@
 
 Feeds is a self-hosted YouTube subscription manager that puts you back in control. No algorithms deciding what you see—just chronological updates from creators you choose, organized into feeds you curate.
 
+<p align="center">
+  <img src="screenshots/desktop-home.png" alt="Feeds home page" width="800">
+</p>
+
+<p align="center">
+  <img src="screenshots/desktop-feed.png" alt="Feed detail view" width="800">
+</p>
+
+<details>
+<summary>📱 Mobile Screenshots</summary>
+<p align="center">
+  <img src="screenshots/mobile-home.png" alt="Mobile home" width="300">
+  <img src="screenshots/mobile-feed.png" alt="Mobile feed" width="300">
+</p>
+</details>
+
 ## Architecture
 
 - **Backend**: Go HTTP server with SQLite
