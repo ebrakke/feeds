@@ -259,8 +259,13 @@
 	$effect(() => {
 		if (loading || error || !videoElement) return;
 
+		// For non-auto qualities, only load if cached
+		const effectiveQuality = selectedQuality === 'auto' || cachedQualities.includes(selectedQuality)
+			? selectedQuality
+			: 'auto';
+
 		// Build the stream URL
-		const newURL = `/api/stream/${videoId}?quality=${selectedQuality}`;
+		const newURL = `/api/stream/${videoId}?quality=${effectiveQuality}`;
 
 		// Skip if we already loaded this exact URL
 		if (lastLoadedURL === newURL) return;
