@@ -270,21 +270,67 @@ export function subscribeToDownloadProgress(
 	videoId: string,
 	onProgress: (data: { quality: string; percent: number; status: string; error?: string }) => void
 ): () => void {
-	const es = new EventSource(`/api/videos/${videoId}/download/status`);
+	let closed = false;
+	let es: EventSource | null = new EventSource(`/api/videos/${videoId}/download/status`);
 
-	es.addEventListener('progress', (e) => {
+	const handleMessage = (e: MessageEvent) => {
 		const data = JSON.parse(e.data);
 		onProgress(data);
-	});
 
-	es.addEventListener('status', (e) => {
-		const data = JSON.parse(e.data);
-		onProgress(data);
-	});
-
-	es.onerror = () => {
-		es.close();
+		// Close on terminal states
+		if (data.status === 'complete' || data.status === 'error') {
+			closed = true;
+			es?.close();
+			es = null;
+		}
 	};
 
-	return () => es.close();
+	es.addEventListener('progress', handleMessage);
+	es.addEventListener('status', handleMessage);
+
+	es.onerror = () => {
+		if (closed || !es) return;
+
+		// On error, poll for status instead of giving up
+		es.close();
+		es = null;
+
+		// Poll to check if download completed while disconnected
+		const poll = async () => {
+			if (closed) return;
+			try {
+				const qualities = await getQualities(videoId);
+				// Check if the quality we were downloading is now cached
+				// We don't know which quality, so just report if anything new is cached
+				if (qualities.cached.length > 0 && !qualities.downloading) {
+					// Download completed while we were disconnected
+					onProgress({ quality: qualities.cached[0], percent: 100, status: 'complete' });
+					closed = true;
+				} else if (qualities.downloading) {
+					// Still downloading, try to reconnect
+					setTimeout(() => {
+						if (closed) return;
+						es = new EventSource(`/api/videos/${videoId}/download/status`);
+						es.addEventListener('progress', handleMessage);
+						es.addEventListener('status', handleMessage);
+						es.onerror = () => {
+							es?.close();
+							es = null;
+							if (!closed) setTimeout(poll, 2000);
+						};
+					}, 1000);
+				}
+			} catch {
+				// Retry poll after delay
+				if (!closed) setTimeout(poll, 2000);
+			}
+		};
+		poll();
+	};
+
+	return () => {
+		closed = true;
+		es?.close();
+		es = null;
+	};
 }

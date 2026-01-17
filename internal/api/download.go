@@ -140,10 +140,21 @@ func (dm *DownloadManager) broadcast(videoID string, progress DownloadProgress) 
 	dm.mu.RUnlock()
 
 	for _, ch := range listeners {
-		select {
-		case ch <- progress:
-		default:
-			// Skip if channel buffer is full
+		// For terminal states (complete/error), use blocking send with timeout
+		// to ensure the message is delivered
+		if progress.Status == "complete" || progress.Status == "error" {
+			select {
+			case ch <- progress:
+			case <-time.After(5 * time.Second):
+				log.Printf("Timeout sending %s status to listener for %s", progress.Status, videoID)
+			}
+		} else {
+			// For progress updates, non-blocking is fine
+			select {
+			case ch <- progress:
+			default:
+				// Skip if channel buffer is full
+			}
 		}
 	}
 }
