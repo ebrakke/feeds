@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getSegments } from '$lib/api';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getSegments, getQualities, startDownload, subscribeToDownloadProgress } from '$lib/api';
 	import type { Feed, Video, WatchProgress, ChannelMembership, SponsorBlockSegment } from '$lib/types';
 
 	let videoId = $derived($page.params.id ?? '');
@@ -30,6 +30,14 @@
 	let subscribing = $state(false);
 	let removingChannelId = $state<number | null>(null);
 	let selectedFeedId = $state<string>('');
+
+	// Download state
+	let availableQualities = $state<string[]>([]);
+	let cachedQualities = $state<string[]>([]);
+	let downloadingQuality = $state<string | null>(null);
+	let downloadProgress = $state(0);
+	let downloadError = $state<string | null>(null);
+	let unsubscribeProgress: (() => void) | null = null;
 
 	let lastSavedTime = 0;
 	let resumeFrom = $state(0);
@@ -211,6 +219,17 @@
 			loading = false;
 		}
 
+		// Load available qualities
+		try {
+			const qualities = await getQualities(id);
+			availableQualities = qualities.available;
+			cachedQualities = qualities.cached || [];
+			downloadingQuality = qualities.downloading;
+		} catch (e) {
+			console.warn('Failed to load qualities:', e);
+			availableQualities = ['360', '480', '720', '1080'];
+		}
+
 		try {
 			const nearby = await getNearbyVideos(id, 20);
 			nearbyVideos = nearby.videos;
@@ -285,6 +304,9 @@
 		if (videoElement) {
 			videoElement.pause();
 		}
+		if (unsubscribeProgress) {
+			unsubscribeProgress();
+		}
 	});
 
 	function handleVideoLoaded() {
@@ -328,6 +350,61 @@
 		const duration = Math.floor(videoElement.duration) || 0;
 		if (duration > 0) {
 			updateProgress(videoId, currentTime, duration).catch(() => {});
+		}
+	}
+
+	async function handleQualitySelect(quality: string) {
+		// If this quality is cached, switch to it
+		if (cachedQualities.includes(quality)) {
+			selectedQuality = quality;
+			return;
+		}
+
+		// If auto, just switch
+		if (quality === 'auto') {
+			selectedQuality = 'auto';
+			return;
+		}
+
+		// Otherwise, start download
+		downloadError = null;
+		try {
+			const result = await startDownload(videoId, quality);
+			if (result.status === 'complete') {
+				cachedQualities = [...cachedQualities, quality];
+				selectedQuality = quality;
+			} else {
+				downloadingQuality = quality;
+				downloadProgress = 0;
+
+				// Subscribe to progress updates
+				if (unsubscribeProgress) {
+					unsubscribeProgress();
+				}
+				unsubscribeProgress = subscribeToDownloadProgress(videoId, (data) => {
+					if (data.status === 'complete') {
+						cachedQualities = [...cachedQualities, data.quality];
+						downloadingQuality = null;
+						downloadProgress = 0;
+						if (unsubscribeProgress) {
+							unsubscribeProgress();
+							unsubscribeProgress = null;
+						}
+					} else if (data.status === 'error') {
+						downloadError = data.error || 'Download failed';
+						downloadingQuality = null;
+						downloadProgress = 0;
+						if (unsubscribeProgress) {
+							unsubscribeProgress();
+							unsubscribeProgress = null;
+						}
+					} else {
+						downloadProgress = data.percent || 0;
+					}
+				});
+			}
+		} catch (e) {
+			downloadError = e instanceof Error ? e.message : 'Failed to start download';
 		}
 	}
 
