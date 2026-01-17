@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getStreamURLs, getSegments } from '$lib/api';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getSegments } from '$lib/api';
 	import type { Feed, Video, WatchProgress, ChannelMembership, SponsorBlockSegment } from '$lib/types';
 
 	let videoId = $derived($page.params.id ?? '');
@@ -13,27 +13,13 @@
 	let thumbnailURL = $state('');
 
 	let selectedQuality = $state('720');
-	let streamLoading = $state(false);
 	let streamError = $state<string | null>(null);
 	let actualHeight = $state(0);
 	let actualWidth = $state(0);
-	let useAdaptiveStreaming = $state(false);
 	let channelMemberships = $state<ChannelMembership[]>([]);
 	let feeds = $state<Feed[]>([]);
 
 	let videoElement = $state<HTMLVideoElement | null>(null);
-	let hasLoadedStream = $state(false);
-	let currentVideoURL = $state('');
-	let currentAudioURL = $state('');
-	let usingMSE = $state(false);
-	let progressiveURL = $state('');
-	let pendingSeekTime = $state<number | null>(null);
-	let adaptiveLoadKey = '';
-
-	let mediaSource: MediaSource | null = null;
-	let mediaObjectURL = '';
-	let videoAbort: AbortController | null = null;
-	let audioAbort: AbortController | null = null;
 
 	// Nearby videos
 	let nearbyVideos = $state<Video[]>([]);
@@ -191,8 +177,6 @@
 		}
 		previousVideoId = id;
 
-		cleanupMediaSource();
-
 		loading = true;
 		error = null;
 		title = '';
@@ -200,15 +184,7 @@
 		channelURL = '';
 		viewCount = 0;
 		thumbnailURL = '';
-		streamLoading = false;
 		streamError = null;
-		hasLoadedStream = false;
-		currentVideoURL = '';
-		currentAudioURL = '';
-		progressiveURL = '';
-		pendingSeekTime = null;
-		adaptiveLoadKey = '';
-		usingMSE = false;
 		actualHeight = 0;
 		actualWidth = 0;
 		channelMemberships = [];
@@ -253,216 +229,6 @@
 		}
 	}
 
-	function cleanupMediaSource() {
-		if (videoAbort) {
-			videoAbort.abort();
-			videoAbort = null;
-		}
-		if (audioAbort) {
-			audioAbort.abort();
-			audioAbort = null;
-		}
-		if (mediaSource && mediaSource.readyState === 'open') {
-			try {
-				mediaSource.endOfStream();
-			} catch {
-				// ignore teardown errors
-			}
-		}
-		mediaSource = null;
-		usingMSE = false;
-		if (mediaObjectURL) {
-			URL.revokeObjectURL(mediaObjectURL);
-			mediaObjectURL = '';
-		}
-		if (videoElement) {
-			videoElement.removeAttribute('src');
-			videoElement.load();
-		}
-	}
-
-	function buildMimeType(contentType: string | null, fallback: string) {
-		if (!contentType) {
-			return fallback;
-		}
-		if (contentType.includes('codecs=')) {
-			return contentType;
-		}
-		const base = contentType.split(';')[0].trim();
-		const defaults: Record<string, string> = {
-			'video/mp4': 'avc1.640028',
-			'audio/mp4': 'mp4a.40.2',
-			'video/webm': 'vp9',
-			'audio/webm': 'opus'
-		};
-		const match = fallback.match(/codecs="([^"]+)"/);
-		const codec = match ? match[1] : (defaults[base] || '');
-		return codec ? `${base}; codecs="${codec}"` : base;
-	}
-
-	async function getContentType(url: string) {
-		const res = await fetch(url, { headers: { Range: 'bytes=0-0' } });
-		if (!res.ok) {
-			return '';
-		}
-		return res.headers.get('content-type') || '';
-	}
-
-	function waitForUpdateEnd(sb: SourceBuffer) {
-		return new Promise<void>((resolve, reject) => {
-			const onEnd = () => {
-				sb.removeEventListener('updateend', onEnd);
-				resolve();
-			};
-			const onError = () => {
-				sb.removeEventListener('error', onError);
-				reject(new Error('SourceBuffer error'));
-			};
-			sb.addEventListener('updateend', onEnd, { once: true });
-			sb.addEventListener('error', onError, { once: true });
-		});
-	}
-
-	async function appendChunk(sb: SourceBuffer, chunk: ArrayBuffer) {
-		if (sb.updating) {
-			await waitForUpdateEnd(sb);
-		}
-		sb.appendBuffer(chunk);
-		await waitForUpdateEnd(sb);
-	}
-
-	async function streamToBuffer(url: string, sb: SourceBuffer, signal: AbortSignal) {
-		const chunkSize = 2 * 1024 * 1024;
-		let position = 0;
-		let total = -1;
-
-		while (total < 0 || position < total) {
-			const end = total > 0 ? Math.min(total - 1, position + chunkSize - 1) : position + chunkSize - 1;
-			const res = await fetch(url, {
-				headers: { Range: `bytes=${position}-${end}` },
-				signal
-			});
-
-			if (res.status === 416) {
-				break;
-			}
-			if (!res.ok) {
-				throw new Error(`Stream fetch failed: ${res.status}`);
-			}
-
-			const contentRange = res.headers.get('content-range');
-			if (contentRange) {
-				const match = contentRange.match(/\/(\d+)$/);
-				if (match) {
-					total = parseInt(match[1], 10);
-				}
-			}
-
-			const buf = await res.arrayBuffer();
-			if (buf.byteLength === 0) {
-				break;
-			}
-
-			await appendChunk(sb, buf);
-			position += buf.byteLength;
-
-			if (!contentRange && buf.byteLength < chunkSize) {
-				break;
-			}
-		}
-	}
-
-	async function handleLoadStream() {
-		if (!useAdaptiveStreaming) {
-			return;
-		}
-		streamLoading = true;
-		streamError = null;
-
-		cleanupMediaSource();
-
-		try {
-			progressiveURL = `/api/stream/${videoId}?quality=${encodeURIComponent(selectedQuality)}&adaptive=0`;
-			const urls = await getStreamURLs(videoId, selectedQuality);
-			currentVideoURL = urls.videoURL;
-			currentAudioURL = urls.audioURL;
-			hasLoadedStream = true;
-
-			if (!videoElement) {
-				throw new Error('Video element not ready');
-			}
-
-			if (!currentAudioURL) {
-				videoElement.src = currentVideoURL;
-				videoElement.load();
-				usingMSE = false;
-			} else {
-				if (!('MediaSource' in window)) {
-					videoElement.src = progressiveURL;
-					videoElement.load();
-					usingMSE = false;
-					return;
-				}
-
-				const [videoType, audioType] = await Promise.all([
-					getContentType(currentVideoURL),
-					getContentType(currentAudioURL)
-				]);
-
-				const videoMime = buildMimeType(videoType, 'video/mp4; codecs="avc1.640028"');
-				const audioMime = buildMimeType(audioType, 'audio/mp4; codecs="mp4a.40.2"');
-
-				if (!MediaSource.isTypeSupported(videoMime) || !MediaSource.isTypeSupported(audioMime)) {
-					videoElement.src = progressiveURL;
-					videoElement.load();
-					usingMSE = false;
-					return;
-				}
-
-				mediaSource = new MediaSource();
-				mediaObjectURL = URL.createObjectURL(mediaSource);
-				videoElement.src = mediaObjectURL;
-				videoElement.load();
-
-				await new Promise<void>((resolve) => {
-					mediaSource?.addEventListener('sourceopen', () => resolve(), { once: true });
-				});
-
-				if (!mediaSource) {
-					throw new Error('MediaSource not available');
-				}
-
-				const videoBuffer = mediaSource.addSourceBuffer(videoMime);
-				const audioBuffer = mediaSource.addSourceBuffer(audioMime);
-				videoAbort = new AbortController();
-				audioAbort = new AbortController();
-
-				usingMSE = true;
-				void Promise.all([
-					streamToBuffer(currentVideoURL, videoBuffer, videoAbort.signal),
-					streamToBuffer(currentAudioURL, audioBuffer, audioAbort.signal)
-				]).then(() => {
-					if (mediaSource?.readyState === 'open') {
-						mediaSource.endOfStream();
-					}
-				}).catch((err) => {
-					if (err instanceof DOMException && err.name === 'AbortError') {
-						return;
-					}
-					streamError = err instanceof Error ? err.message : 'Failed to load stream';
-				});
-			}
-		} catch (e) {
-			if (e instanceof DOMException && e.name === 'AbortError') {
-				return;
-			}
-			streamError = e instanceof Error ? e.message : 'Failed to load stream';
-			hasLoadedStream = false;
-		} finally {
-			streamLoading = false;
-		}
-	}
-
 	let currentLoadingId = '';
 	$effect(() => {
 		const id = videoId;
@@ -472,24 +238,28 @@
 	});
 
 	$effect(() => {
-		if (loading || error) return;
-		if (!videoElement) return;
+		if (loading || error || !videoElement) return;
 
-		progressiveURL = `/api/stream/${videoId}?quality=${encodeURIComponent(selectedQuality)}&adaptive=0`;
+		// Quality changed, update video source
+		const newURL = `/api/stream/${videoId}?quality=${selectedQuality}`;
+		if (videoElement.src !== newURL && videoElement.src !== location.origin + newURL) {
+			const currentTime = videoElement.currentTime;
+			const wasPlaying = !videoElement.paused;
+			const video = videoElement;  // Capture reference
 
-		if (useAdaptiveStreaming) {
-			const key = `${videoId}:${selectedQuality}`;
-			if (adaptiveLoadKey === key) return;
-			adaptiveLoadKey = key;
-			handleLoadStream();
-			return;
+			video.src = newURL;
+			video.load();
+
+			// Restore position after load
+			video.addEventListener('loadedmetadata', () => {
+				if (currentTime > 0) {
+					video.currentTime = currentTime;
+				}
+				if (wasPlaying) {
+					video.play().catch(() => {});
+				}
+			}, { once: true });
 		}
-
-		if (usingMSE) {
-			cleanupMediaSource();
-		}
-		videoElement.src = progressiveURL;
-		videoElement.load();
 	});
 
 	onMount(async () => {
@@ -509,7 +279,6 @@
 
 	onDestroy(() => {
 		saveProgress();
-		cleanupMediaSource();
 		if (videoElement) {
 			videoElement.pause();
 		}
@@ -517,7 +286,6 @@
 
 	function handleVideoLoaded() {
 		if (videoElement) {
-			streamLoading = false;
 			videoElement.playbackRate = playbackSpeed;
 
 			if (resumeFrom > 0) {
@@ -531,10 +299,6 @@
 		if (!videoElement) return;
 		actualHeight = videoElement.videoHeight || 0;
 		actualWidth = videoElement.videoWidth || 0;
-		if (pendingSeekTime !== null) {
-			videoElement.currentTime = pendingSeekTime;
-			pendingSeekTime = null;
-		}
 	}
 
 	function saveProgress() {
@@ -561,18 +325,6 @@
 		const duration = Math.floor(videoElement.duration) || 0;
 		if (duration > 0) {
 			updateProgress(videoId, currentTime, duration).catch(() => {});
-		}
-	}
-
-	function handleSeeking() {
-		if (!videoElement) return;
-		if (usingMSE && progressiveURL) {
-			const seekTime = videoElement.currentTime;
-			cleanupMediaSource();
-			usingMSE = false;
-			pendingSeekTime = seekTime;
-			videoElement.src = progressiveURL;
-			videoElement.load();
 		}
 	}
 
@@ -661,12 +413,10 @@
 						preload="auto"
 						playsinline
 						poster={thumbnailURL || undefined}
-						src={useAdaptiveStreaming ? undefined : progressiveURL}
 						onloadedmetadata={handleLoadedMetadata}
 						onloadeddata={handleVideoLoaded}
 						ontimeupdate={handleTimeUpdate}
 						onpause={handlePause}
-						onseeking={handleSeeking}
 					>
 						Your browser does not support the video tag.
 					</video>
@@ -748,14 +498,8 @@
 							<select
 								bind:value={selectedQuality}
 								class="select"
-								disabled={streamLoading}
 							>
 								<option value="best">Best</option>
-								{#if useAdaptiveStreaming}
-									<option value="4320">8K</option>
-									<option value="2160">4K</option>
-									<option value="1440">1440p</option>
-								{/if}
 								<option value="1080">1080p</option>
 								<option value="720">720p</option>
 								<option value="480">480p</option>
@@ -802,32 +546,6 @@
 									<span class="settings-option-desc">Auto-skip sponsors & intros</span>
 								</div>
 							</label>
-							<label class="settings-option">
-								<input
-									type="checkbox"
-									bind:checked={useAdaptiveStreaming}
-									class="checkbox"
-								/>
-								<div class="settings-option-text">
-									<span class="settings-option-label">Adaptive streaming</span>
-									<span class="settings-option-desc">Higher quality (experimental)</span>
-								</div>
-							</label>
-							{#if useAdaptiveStreaming}
-								<button
-									onclick={handleLoadStream}
-									disabled={streamLoading}
-									class="btn btn-secondary btn-sm w-full mt-2"
-								>
-									{#if streamLoading}
-										<svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-										</svg>
-									{/if}
-									{hasLoadedStream ? 'Reload Stream' : 'Load Adaptive Stream'}
-								</button>
-							{/if}
 						</div>
 					</details>
 				</div>
