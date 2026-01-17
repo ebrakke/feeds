@@ -46,8 +46,64 @@ Access the app at http://localhost:5173
 
 ## Testing
 
-Run tests locally:
+Run Go tests locally:
 
 ```bash
 go test ./...
+```
+
+## E2E Testing with Playwright
+
+The frontend includes Playwright for end-to-end testing and visual regression capture.
+
+### Setup
+
+Install Playwright browsers (one-time setup):
+
+```bash
+make playwright-install
+```
+
+### Running Tests
+
+```bash
+# Run all e2e tests
+make e2e
+
+# Run tests with interactive UI
+make e2e-ui
+
+# Capture mobile screenshots for UI review
+make e2e-screenshots
+```
+
+### Screenshot Capture
+
+The `e2e-screenshots` command captures mobile viewport screenshots of all main pages. This is useful for:
+
+- Reviewing mobile UI before/after changes
+- Visual regression testing
+- Documenting UI states
+
+Screenshots are saved to `web/frontend/e2e/screenshots/`.
+
+### Playwright Config
+
+The configuration is in `web/frontend/playwright.config.ts`. It includes:
+
+- Desktop Chrome, Mobile Chrome (Pixel 5), and Mobile Safari (iPhone 14 Pro) projects
+- Auto-starts dev server when not in CI
+- `--no-sandbox` flag for running as root
+
+### Writing Tests
+
+Add test files to `web/frontend/e2e/` with `.spec.ts` extension:
+
+```typescript
+import { test, expect } from '@playwright/test';
+
+test('home page loads', async ({ page }) => {
+  await page.goto('/');
+  await expect(page).toHaveTitle(/feeds/i);
+});
 ```

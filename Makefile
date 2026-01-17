@@ -91,6 +91,23 @@ dist:
 install:
 	go install $(LDFLAGS) ./cmd/server
 
+# Playwright e2e testing
+.PHONY: e2e
+e2e:
+	cd web/frontend && bun run e2e
+
+.PHONY: e2e-ui
+e2e-ui:
+	cd web/frontend && bun run e2e:ui
+
+.PHONY: e2e-screenshots
+e2e-screenshots:
+	cd web/frontend && bun run e2e:screenshots
+
+.PHONY: playwright-install
+playwright-install:
+	cd web/frontend && bunx playwright install chromium
+
 .PHONY: help
 help:
 	@echo "feeds build targets:"
@@ -108,5 +125,11 @@ help:
 	@echo ""
 	@echo "Local development:"
 	@echo "  make dev          - Run air (Go) + bun dev (frontend)"
+	@echo ""
+	@echo "E2E testing (Playwright):"
+	@echo "  make playwright-install - Install Playwright browsers"
+	@echo "  make e2e                - Run Playwright tests"
+	@echo "  make e2e-ui             - Run Playwright tests with UI"
+	@echo "  make e2e-screenshots    - Capture mobile screenshots"
 	@echo ""
 	@echo "Note: Cross-platform builds no longer require CGO (pure Go sqlite)."

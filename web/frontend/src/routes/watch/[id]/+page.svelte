@@ -117,16 +117,12 @@
 		if (!sponsorBlockEnabled || !videoElement) return;
 
 		for (const segment of segments) {
-			// Skip if we've already skipped this segment recently
 			if (lastSkippedSegment === segment.uuid) continue;
 
-			// Check if we're in a skip segment (with 0.5s tolerance for entry)
 			if (currentTime >= segment.startTime && currentTime < segment.endTime - 0.5) {
-				// Skip to end of segment
 				videoElement.currentTime = segment.endTime;
 				lastSkippedSegment = segment.uuid;
 
-				// Show skip notice
 				skipNoticeCategory = categoryNames[segment.category] || segment.category;
 				showSkipNotice = true;
 				if (skipNoticeTimeout) clearTimeout(skipNoticeTimeout);
@@ -138,7 +134,6 @@
 			}
 		}
 
-		// Reset lastSkippedSegment if we're past all segments
 		const maxEnd = Math.max(...segments.map(s => s.endTime), 0);
 		if (currentTime > maxEnd + 1) {
 			lastSkippedSegment = null;
@@ -187,7 +182,6 @@
 	}
 
 	async function loadVideo(id: string) {
-		// Save progress from previous video before switching
 		if (videoElement && !loading && previousVideoId) {
 			const currentTime = Math.floor(videoElement.currentTime);
 			const duration = Math.floor(videoElement.duration) || 0;
@@ -197,10 +191,8 @@
 		}
 		previousVideoId = id;
 
-		// Clean up previous video
 		cleanupMediaSource();
 
-		// Reset state for new video
 		loading = true;
 		error = null;
 		title = '';
@@ -229,7 +221,6 @@
 		lastSkippedSegment = null;
 		showSkipNotice = false;
 
-		// Load video info
 		try {
 			const data = await getVideoInfo(id);
 			title = data.title;
@@ -245,7 +236,6 @@
 			loading = false;
 		}
 
-		// Load nearby videos and SponsorBlock segments (don't block on these)
 		try {
 			const nearby = await getNearbyVideos(id, 20);
 			nearbyVideos = nearby.videos;
@@ -255,7 +245,6 @@
 			console.warn('Failed to load nearby videos:', e);
 		}
 
-		// Load SponsorBlock segments
 		try {
 			const data = await getSegments(id);
 			segments = data.segments || [];
@@ -403,7 +392,6 @@
 				throw new Error('Video element not ready');
 			}
 
-			// If no separate audio stream, use direct progressive video URL
 			if (!currentAudioURL) {
 				videoElement.src = currentVideoURL;
 				videoElement.load();
@@ -475,11 +463,9 @@
 		}
 	}
 
-	// React to videoId changes
 	let currentLoadingId = '';
 	$effect(() => {
 		const id = videoId;
-		// Prevent re-running if we're already loading this video
 		if (id === currentLoadingId) return;
 		currentLoadingId = id;
 		loadVideo(id);
@@ -507,14 +493,11 @@
 	});
 
 	onMount(async () => {
-		// Load saved settings
 		loadSavedSpeed();
 		loadSponsorBlockSetting();
 
-		// Load feeds (only once)
 		try {
 			feeds = await getFeeds();
-			// Pre-select Inbox if it exists
 			const inbox = feeds.find(f => f.is_system);
 			if (inbox) {
 				selectedFeedId = inbox.id.toString();
@@ -535,10 +518,8 @@
 	function handleVideoLoaded() {
 		if (videoElement) {
 			streamLoading = false;
-			// Apply saved playback speed
 			videoElement.playbackRate = playbackSpeed;
 
-			// Resume from saved position if available
 			if (resumeFrom > 0) {
 				videoElement.currentTime = resumeFrom;
 				lastSavedTime = resumeFrom;
@@ -637,399 +618,394 @@
 	{/if}
 </svelte:head>
 
-<div class="max-w-6xl mx-auto">
-	<div class="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
-		<div class="min-w-0">
-	<!-- Video container -->
-	<div class="aspect-video bg-black rounded-lg overflow-hidden mb-4 relative">
-		{#if loading}
-			<div class="absolute inset-0 flex items-center justify-center bg-gray-900">
-				<div class="text-center">
-					<svg class="animate-spin h-10 w-10 text-blue-500 mx-auto mb-3" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-					</svg>
-					<p class="text-gray-400 text-sm">Loading video...</p>
-				</div>
-			</div>
-		{:else if error}
-			<div class="absolute inset-0 flex items-center justify-center bg-gray-900">
-				<div class="text-center px-4">
-					<svg class="h-10 w-10 text-red-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-					</svg>
-					<p class="text-red-400 mb-2">{error}</p>
-					<a
-						href="https://www.youtube.com/watch?v={videoId}"
-						target="_blank"
-						rel="noopener"
-						class="text-blue-400 hover:text-blue-300 text-sm"
-					>
-						Watch on YouTube instead
-					</a>
-				</div>
-			</div>
-		{:else}
-			<!-- svelte-ignore a11y_media_has_caption -->
-			<video
-				bind:this={videoElement}
-				class="w-full h-full"
-				controls
-				preload="auto"
-				playsinline
-				poster={thumbnailURL || undefined}
-				src={useAdaptiveStreaming ? undefined : progressiveURL}
-				onloadedmetadata={handleLoadedMetadata}
-				onloadeddata={handleVideoLoaded}
-				ontimeupdate={handleTimeUpdate}
-				onpause={handlePause}
-				onseeking={handleSeeking}
-			>
-				Your browser does not support the video tag.
-			</video>
-			{#if streamError}
-				<div class="absolute inset-0 flex items-center justify-center bg-gray-900/90">
-					<div class="text-center px-4">
-						<svg class="h-10 w-10 text-red-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-						</svg>
-						<p class="text-red-400 mb-2">{streamError}</p>
-						<a
-							href="https://www.youtube.com/watch?v={videoId}"
-							target="_blank"
-							rel="noopener"
-							class="text-blue-400 hover:text-blue-300 text-sm"
-						>
-							Watch on YouTube instead
-						</a>
+<div class="max-w-7xl mx-auto">
+	<div class="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-8">
+		<!-- Main Content -->
+		<div class="min-w-0 animate-fade-up" style="opacity: 0;">
+			<!-- Video Player -->
+			<div class="player-container mb-4">
+				{#if loading}
+					<div class="absolute inset-0 flex items-center justify-center">
+						<div class="text-center">
+							<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mx-auto mb-3"></div>
+							<p class="text-text-muted font-display text-sm">Loading video...</p>
+						</div>
 					</div>
-				</div>
-			{/if}
-			<!-- SponsorBlock skip notice -->
-			{#if showSkipNotice}
-				<div class="absolute bottom-16 left-4 bg-black/80 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-fade-in">
-					<svg class="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-						<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-					</svg>
-					<span>Skipped {skipNoticeCategory}</span>
-				</div>
-			{/if}
-		{/if}
-	</div>
-
-	<!-- SponsorBlock segment markers (shown below video) -->
-	{#if segments.length > 0 && videoElement}
-		<div class="relative h-1 bg-gray-700 rounded-full mb-2 overflow-hidden" title="SponsorBlock segments">
-			{#each segments as segment}
-				{@const duration = videoElement.duration || 1}
-				{@const left = (segment.startTime / duration) * 100}
-				{@const width = ((segment.endTime - segment.startTime) / duration) * 100}
-				<div
-					class="absolute top-0 h-full opacity-80 hover:opacity-100 cursor-pointer"
-					style="left: {left}%; width: {Math.max(width, 0.5)}%; background-color: {categoryColors[segment.category] || '#888'}"
-					title="{categoryNames[segment.category] || segment.category}: {Math.floor(segment.startTime)}s - {Math.floor(segment.endTime)}s"
-				></div>
-			{/each}
-		</div>
-	{/if}
-
-	{#if !loading && !error}
-		<div class="flex flex-wrap items-center gap-3 mb-4">
-			<details class="bg-gray-800/60 border border-gray-700 rounded px-3 py-2 text-sm">
-				<summary class="cursor-pointer text-gray-300 select-none">Settings</summary>
-				<div class="mt-2 space-y-2 text-gray-400">
-					<label class="flex items-center gap-2">
-						<input
-							type="checkbox"
-							checked={sponsorBlockEnabled}
-							onchange={(e) => setSponsorBlockEnabled(e.currentTarget.checked)}
-							class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-green-500 focus:ring-green-500 focus:ring-offset-0"
-						/>
-						SponsorBlock (skip sponsors)
-					</label>
-					<label class="flex items-center gap-2">
-						<input
-							type="checkbox"
-							bind:checked={useAdaptiveStreaming}
-							class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-						/>
-						Adaptive streaming (experimental)
-					</label>
-				</div>
-			</details>
-			{#if segments.length > 0}
-				<span class="text-xs text-gray-500 flex items-center gap-1" title="SponsorBlock segments found">
-					<svg class="w-3.5 h-3.5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-						<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-					</svg>
-					{segments.length} segment{segments.length !== 1 ? 's' : ''}
-				</span>
-			{/if}
-			<label class="text-sm text-gray-400">Quality</label>
-			<select
-				bind:value={selectedQuality}
-				class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
-				disabled={streamLoading}
-			>
-				<option value="best">Best available</option>
-				{#if useAdaptiveStreaming}
-					<option value="4320">8K (4320p)</option>
-					<option value="2160">4K (2160p)</option>
-					<option value="1440">1440p</option>
-				{/if}
-				<option value="1080">1080p</option>
-				<option value="720">720p</option>
-				<option value="480">480p</option>
-				<option value="360">360p</option>
-			</select>
-			<button
-				onclick={handleLoadStream}
-				disabled={streamLoading || !useAdaptiveStreaming}
-				class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-2"
-			>
-				{#if streamLoading}
-					<svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-					</svg>
-				{/if}
-				{hasLoadedStream ? 'Reload adaptive' : 'Load adaptive'}
-			</button>
-			{#if actualHeight > 0}
-				<span class="text-xs text-gray-500">
-					Actual: {actualHeight}p
-				</span>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- Speed controls -->
-	{#if !loading && !error}
-		<div class="flex items-center gap-1 mb-4">
-			<span class="text-gray-400 text-sm mr-2">Speed:</span>
-			{#each speeds as speed}
-				<button
-					onclick={() => setSpeed(speed)}
-					class="px-2 py-1 text-sm rounded {playbackSpeed === speed ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}"
-				>
-					{speed}x
-				</button>
-			{/each}
-		</div>
-	{/if}
-
-	<!-- Title -->
-	<h1 class="text-lg font-bold mb-2">
-		{#if loading}
-			<span class="inline-block bg-gray-700 rounded h-6 w-64 animate-pulse"></span>
-		{:else}
-			{title}
-		{/if}
-	</h1>
-
-	<div class="flex items-center justify-between mb-4">
-		<!-- Channel name and view count -->
-		<div class="text-gray-400">
-			{#if loading}
-				<span class="inline-block bg-gray-700 rounded h-4 w-32 animate-pulse"></span>
-			{:else}
-				<span>{channelName}</span>
-				{#if viewCount > 0}
-					<span class="text-gray-500 ml-2">{formatViewCount(viewCount)}</span>
-				{/if}
-			{/if}
-		</div>
-
-		<!-- Subscribe section -->
-		<div class="flex flex-col items-end gap-2">
-			{#if channelMemberships.length > 0}
-				<div class="flex items-center gap-2 flex-wrap justify-end">
-					<span class="text-gray-400 text-sm">In:</span>
-					{#each channelMemberships as membership}
-						<span class="inline-flex items-center gap-1 bg-gray-800 text-sm px-2 py-1 rounded">
-							<a href="/feeds/{membership.feedId}" class="hover:text-blue-400">
-								{membership.feedName}
-							</a>
-							<button
-								onclick={() => handleRemove(membership)}
-								disabled={removingChannelId === membership.channelId}
-								class="text-gray-500 hover:text-red-400 disabled:opacity-50 ml-1"
-								title="Remove from {membership.feedName}"
+				{:else if error}
+					<div class="absolute inset-0 flex items-center justify-center">
+						<div class="text-center px-6">
+							<div class="w-16 h-16 rounded-full bg-crimson-500/10 flex items-center justify-center mx-auto mb-4">
+								<svg class="w-8 h-8 text-crimson-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<circle cx="12" cy="12" r="10"/>
+									<line x1="12" y1="8" x2="12" y2="12"/>
+									<line x1="12" y1="16" x2="12.01" y2="16"/>
+								</svg>
+							</div>
+							<p class="text-crimson-400 mb-4">{error}</p>
+							<a
+								href="https://www.youtube.com/watch?v={videoId}"
+								target="_blank"
+								rel="noopener"
+								class="btn btn-secondary btn-sm"
 							>
-								{#if removingChannelId === membership.channelId}
-									<svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								Watch on YouTube
+							</a>
+						</div>
+					</div>
+				{:else}
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video
+						bind:this={videoElement}
+						class="w-full h-full"
+						controls
+						preload="auto"
+						playsinline
+						poster={thumbnailURL || undefined}
+						src={useAdaptiveStreaming ? undefined : progressiveURL}
+						onloadedmetadata={handleLoadedMetadata}
+						onloadeddata={handleVideoLoaded}
+						ontimeupdate={handleTimeUpdate}
+						onpause={handlePause}
+						onseeking={handleSeeking}
+					>
+						Your browser does not support the video tag.
+					</video>
+
+					{#if streamError}
+						<div class="absolute inset-0 flex items-center justify-center bg-void/90">
+							<div class="text-center px-6">
+								<div class="w-16 h-16 rounded-full bg-crimson-500/10 flex items-center justify-center mx-auto mb-4">
+									<svg class="w-8 h-8 text-crimson-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<circle cx="12" cy="12" r="10"/>
+										<line x1="12" y1="8" x2="12" y2="12"/>
+										<line x1="12" y1="16" x2="12.01" y2="16"/>
 									</svg>
-								{:else}
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-									</svg>
-								{/if}
-							</button>
-						</span>
+								</div>
+								<p class="text-crimson-400 mb-4">{streamError}</p>
+								<a
+									href="https://www.youtube.com/watch?v={videoId}"
+									target="_blank"
+									rel="noopener"
+									class="btn btn-secondary btn-sm"
+								>
+									Watch on YouTube
+								</a>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Skip Notice -->
+					{#if showSkipNotice}
+						<div class="skip-notice">
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+								<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+							</svg>
+							<span>Skipped {skipNoticeCategory}</span>
+						</div>
+					{/if}
+				{/if}
+			</div>
+
+			<!-- SponsorBlock Timeline -->
+			{#if segments.length > 0 && videoElement}
+				<div class="sponsor-timeline mb-4" title="SponsorBlock segments">
+					{#each segments as segment}
+						{@const duration = videoElement.duration || 1}
+						{@const left = (segment.startTime / duration) * 100}
+						{@const width = ((segment.endTime - segment.startTime) / duration) * 100}
+						<div
+							class="sponsor-segment"
+							style="left: {left}%; width: {Math.max(width, 0.5)}%; background-color: {categoryColors[segment.category] || '#888'}"
+							title="{categoryNames[segment.category] || segment.category}: {Math.floor(segment.startTime)}s - {Math.floor(segment.endTime)}s"
+						></div>
 					{/each}
 				</div>
 			{/if}
-			{#if channelURL && feeds.length > 0}
-				<div class="flex items-center gap-2">
-					<select
-						bind:value={selectedFeedId}
-						class="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
-					>
-						<option value="" disabled>Add to...</option>
-						{#each feeds as feed}
-							<option value={feed.id.toString()}>
-								{feed.is_system ? 'Inbox' : feed.name}
-							</option>
-						{/each}
-					</select>
-					<button
-						onclick={handleSubscribe}
-						disabled={subscribing || !selectedFeedId}
-						class="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-1"
-					>
-						{#if subscribing}
-							<svg class="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-							</svg>
+
+			<!-- Controls Row -->
+			{#if !loading && !error}
+				<!-- Video Controls - Mobile Optimized -->
+				<div class="video-controls mb-6">
+					<!-- Primary Controls Row -->
+					<div class="controls-row">
+						<!-- Speed Selector -->
+						<div class="control-group">
+							<label class="control-label">Speed</label>
+							<select
+								value={playbackSpeed.toString()}
+								onchange={(e) => setSpeed(parseFloat(e.currentTarget.value))}
+								class="select"
+							>
+								{#each speeds as speed}
+									<option value={speed.toString()}>{speed}x</option>
+								{/each}
+							</select>
+						</div>
+
+						<!-- Quality Selector -->
+						<div class="control-group">
+							<label class="control-label">Quality</label>
+							<select
+								bind:value={selectedQuality}
+								class="select"
+								disabled={streamLoading}
+							>
+								<option value="best">Best</option>
+								{#if useAdaptiveStreaming}
+									<option value="4320">8K</option>
+									<option value="2160">4K</option>
+									<option value="1440">1440p</option>
+								{/if}
+								<option value="1080">1080p</option>
+								<option value="720">720p</option>
+								<option value="480">480p</option>
+								<option value="360">360p</option>
+							</select>
+						</div>
+
+						{#if actualHeight > 0}
+							<span class="resolution-badge">{actualWidth}×{actualHeight}</span>
 						{/if}
-						Add
-					</button>
+
+						{#if segments.length > 0}
+							<span class="badge badge-success">
+								<svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+									<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+								</svg>
+								{segments.length} skip{segments.length !== 1 ? 's' : ''}
+							</span>
+						{/if}
+					</div>
+
+					<!-- Secondary Controls (Settings) -->
+					<details class="settings-dropdown">
+						<summary class="settings-toggle">
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<circle cx="12" cy="12" r="3"/>
+								<path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+							</svg>
+							<span>More options</span>
+							<svg class="chevron w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M6 9l6 6 6-6"/>
+							</svg>
+						</summary>
+						<div class="settings-content">
+							<label class="settings-option">
+								<input
+									type="checkbox"
+									checked={sponsorBlockEnabled}
+									onchange={(e) => setSponsorBlockEnabled(e.currentTarget.checked)}
+									class="checkbox"
+								/>
+								<div class="settings-option-text">
+									<span class="settings-option-label">SponsorBlock</span>
+									<span class="settings-option-desc">Auto-skip sponsors & intros</span>
+								</div>
+							</label>
+							<label class="settings-option">
+								<input
+									type="checkbox"
+									bind:checked={useAdaptiveStreaming}
+									class="checkbox"
+								/>
+								<div class="settings-option-text">
+									<span class="settings-option-label">Adaptive streaming</span>
+									<span class="settings-option-desc">Higher quality (experimental)</span>
+								</div>
+							</label>
+							{#if useAdaptiveStreaming}
+								<button
+									onclick={handleLoadStream}
+									disabled={streamLoading}
+									class="btn btn-secondary btn-sm w-full mt-2"
+								>
+									{#if streamLoading}
+										<svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+										</svg>
+									{/if}
+									{hasLoadedStream ? 'Reload Stream' : 'Load Adaptive Stream'}
+								</button>
+							{/if}
+						</div>
+					</details>
 				</div>
-			{:else if feeds.length === 0 && !loading}
-				<a href="/import" class="text-sm text-blue-400 hover:text-blue-300">
-					Create a feed to subscribe
-				</a>
+			{/if}
+
+			<!-- Title & Channel -->
+			<div class="mb-6">
+				<h1 class="text-xl font-display font-semibold mb-3">
+					{#if loading}
+						<span class="skeleton inline-block h-7 w-96"></span>
+					{:else}
+						{title}
+					{/if}
+				</h1>
+
+				<div class="flex items-center justify-between flex-wrap gap-4">
+					<div class="flex items-center gap-3 text-text-secondary">
+						{#if loading}
+							<span class="skeleton inline-block h-5 w-32"></span>
+						{:else}
+							<span class="font-medium">{channelName}</span>
+							{#if viewCount > 0}
+								<span class="text-text-muted">·</span>
+								<span class="text-text-muted">{formatViewCount(viewCount)}</span>
+							{/if}
+						{/if}
+					</div>
+
+					<!-- Subscribe Section -->
+					<div class="flex items-center gap-2 flex-wrap">
+						{#each channelMemberships as membership}
+							<span class="badge">
+								<a href="/feeds/{membership.feedId}" class="hover:text-amber-400 transition-colors">
+									{membership.feedName}
+								</a>
+								<button
+									onclick={() => handleRemove(membership)}
+									disabled={removingChannelId === membership.channelId}
+									class="ml-1 text-text-muted hover:text-crimson-400 transition-colors disabled:opacity-50"
+								>
+									{#if removingChannelId === membership.channelId}
+										<svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+										</svg>
+									{:else}
+										<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<path d="M18 6L6 18M6 6l12 12"/>
+										</svg>
+									{/if}
+								</button>
+							</span>
+						{/each}
+
+						{#if channelURL && feeds.length > 0}
+							<select bind:value={selectedFeedId} class="select">
+								<option value="" disabled>Add to...</option>
+								{#each feeds as feed}
+									<option value={feed.id.toString()}>
+										{feed.is_system ? 'Inbox' : feed.name}
+									</option>
+								{/each}
+							</select>
+							<button
+								onclick={handleSubscribe}
+								disabled={subscribing || !selectedFeedId}
+								class="btn btn-primary btn-sm"
+							>
+								{#if subscribing}
+									<svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+									</svg>
+								{/if}
+								Add
+							</button>
+						{:else if feeds.length === 0 && !loading}
+							<a href="/import" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">
+								Create a feed first
+							</a>
+						{/if}
+					</div>
+				</div>
+			</div>
+
+			<a
+				href="https://www.youtube.com/watch?v={videoId}"
+				target="_blank"
+				rel="noopener"
+				class="inline-flex items-center gap-2 text-sm text-text-muted hover:text-amber-400 transition-colors"
+			>
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+					<polyline points="15,3 21,3 21,9"/>
+					<line x1="10" y1="14" x2="21" y2="3"/>
+				</svg>
+				Watch on YouTube
+			</a>
+
+			<!-- Mobile Up Next -->
+			{#if nearbyVideos.length > 0}
+				<div class="mt-8 lg:hidden">
+					<div class="flex items-center justify-between mb-4">
+						<h2 class="font-display font-semibold">Up Next</h2>
+						{#if nearbyFeedId > 0}
+							<a href="/feeds/{nearbyFeedId}" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">
+								View Feed
+							</a>
+						{/if}
+					</div>
+					<div class="space-y-3">
+						{#each nearbyVideos.slice(0, 6) as video}
+							<a href="/watch/{video.id}" class="up-next-item group">
+								<div class="video-thumbnail w-36 flex-shrink-0">
+									{#if video.thumbnail}
+										<img src={video.thumbnail} alt="" />
+									{/if}
+									{#if video.duration > 0}
+										<span class="duration-badge">{formatDuration(video.duration)}</span>
+									{/if}
+									{#if getWatchedPercent(video) > 0}
+										<div class="watch-progress">
+											<div class="watch-progress-fill" style="width: {getWatchedPercent(video)}%"></div>
+										</div>
+									{/if}
+								</div>
+								<div class="flex-1 min-w-0">
+									<h3 class="text-sm font-medium line-clamp-2 group-hover:text-amber-400 transition-colors">
+										{video.title}
+									</h3>
+									<p class="text-xs text-text-muted mt-1">{video.channel_name}</p>
+								</div>
+							</a>
+						{/each}
+					</div>
+				</div>
 			{/if}
 		</div>
-	</div>
 
-	<a
-		href="https://www.youtube.com/watch?v={videoId}"
-		target="_blank"
-		rel="noopener"
-		class="text-sm text-gray-500 hover:text-blue-400"
-	>
-		Watch on YouTube
-	</a>
-
-		</div>
-
-	<!-- Up Next / Nearby Videos -->
-	{#if nearbyVideos.length > 0}
-		<div class="mt-8 lg:hidden">
-			<div class="flex items-center justify-between mb-3">
-				<h2 class="text-lg font-semibold">Up Next</h2>
-				{#if nearbyFeedId > 0}
-					<a href="/feeds/{nearbyFeedId}" class="text-sm text-blue-400 hover:text-blue-300">
-						View Feed
-					</a>
-				{/if}
-			</div>
-			<div class="space-y-3">
-				{#each nearbyVideos as video}
-					<a
-						href="/watch/{video.id}"
-						class="flex gap-3 group"
-					>
-						<div class="relative flex-shrink-0 w-40 aspect-video bg-gray-800 rounded-lg overflow-hidden">
-							{#if video.thumbnail}
-								<img
-									src={video.thumbnail}
-									alt=""
-									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-								/>
-							{:else}
-								<div class="w-full h-full flex items-center justify-center text-gray-600">
-									<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-									</svg>
+		<!-- Desktop Sidebar - Up Next -->
+		{#if nearbyVideos.length > 0}
+			<aside class="hidden lg:block animate-fade-up stagger-2" style="opacity: 0;">
+				<div class="sticky top-20">
+					<div class="flex items-center justify-between mb-4">
+						<h2 class="font-display font-semibold">Up Next</h2>
+						{#if nearbyFeedId > 0}
+							<a href="/feeds/{nearbyFeedId}" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">
+								View Feed
+							</a>
+						{/if}
+					</div>
+					<div class="up-next-sidebar space-y-2 pr-2">
+						{#each nearbyVideos as video}
+							<a href="/watch/{video.id}" class="up-next-item group">
+								<div class="video-thumbnail w-36 flex-shrink-0">
+									{#if video.thumbnail}
+										<img src={video.thumbnail} alt="" />
+									{/if}
+									{#if video.duration > 0}
+										<span class="duration-badge">{formatDuration(video.duration)}</span>
+									{/if}
+									{#if getWatchedPercent(video) > 0}
+										<div class="watch-progress">
+											<div class="watch-progress-fill" style="width: {getWatchedPercent(video)}%"></div>
+										</div>
+									{/if}
 								</div>
-							{/if}
-							<!-- Duration badge -->
-							{#if video.duration > 0}
-								<span class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
-									{formatDuration(video.duration)}
-								</span>
-							{/if}
-							<!-- Watch progress bar -->
-							{#if getWatchedPercent(video) > 0}
-								<div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-900/50">
-									<div
-										class="h-full bg-red-600"
-										style="width: {getWatchedPercent(video)}%"
-									></div>
+								<div class="flex-1 min-w-0">
+									<h3 class="text-sm font-medium line-clamp-2 group-hover:text-amber-400 transition-colors">
+										{video.title}
+									</h3>
+									<p class="text-xs text-text-muted mt-1">{video.channel_name}</p>
 								</div>
-							{/if}
-						</div>
-						<div class="flex-1 min-w-0">
-							<h3 class="text-sm font-medium line-clamp-2 group-hover:text-blue-400 transition-colors">
-								{video.title}
-							</h3>
-							<p class="text-xs text-gray-500 mt-1">{video.channel_name}</p>
-						</div>
-					</a>
-				{/each}
-			</div>
-		</div>
-
-		<aside class="hidden lg:block lg:sticky lg:top-24 lg:h-[calc(100vh-7rem)]">
-			<div class="flex items-center justify-between mb-3">
-				<h2 class="text-lg font-semibold">Up Next</h2>
-				{#if nearbyFeedId > 0}
-					<a href="/feeds/{nearbyFeedId}" class="text-sm text-blue-400 hover:text-blue-300">
-						View Feed
-					</a>
-				{/if}
-			</div>
-			<div class="h-full overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
-				{#each nearbyVideos as video}
-					<a
-						href="/watch/{video.id}"
-						class="flex gap-3 group"
-					>
-						<div class="relative flex-shrink-0 w-40 aspect-video bg-gray-800 rounded-lg overflow-hidden">
-							{#if video.thumbnail}
-								<img
-									src={video.thumbnail}
-									alt=""
-									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-								/>
-							{:else}
-								<div class="w-full h-full flex items-center justify-center text-gray-600">
-									<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
-									</svg>
-								</div>
-							{/if}
-							<!-- Duration badge -->
-							{#if video.duration > 0}
-								<span class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
-									{formatDuration(video.duration)}
-								</span>
-							{/if}
-							<!-- Watch progress bar -->
-							{#if getWatchedPercent(video) > 0}
-								<div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-900/50">
-									<div
-										class="h-full bg-red-600"
-										style="width: {getWatchedPercent(video)}%"
-									></div>
-								</div>
-							{/if}
-						</div>
-						<div class="flex-1 min-w-0">
-							<h3 class="text-sm font-medium line-clamp-2 group-hover:text-blue-400 transition-colors">
-								{video.title}
-							</h3>
-							<p class="text-xs text-gray-500 mt-1">{video.channel_name}</p>
-						</div>
-					</a>
-				{/each}
-			</div>
-		</aside>
-	{/if}
+							</a>
+						{/each}
+					</div>
+				</div>
+			</aside>
+		{/if}
 	</div>
 </div>

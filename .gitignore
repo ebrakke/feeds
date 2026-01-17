@@ -42,3 +42,18 @@ yt-app
 tmp/
 data/
 web/dist/
+
+# Node (root level - for tooling like playwright)
+/node_modules/
+/bun.lock
+/package.json
+/package-lock.json
+
+# Playwright
+web/frontend/e2e/screenshots/
+web/frontend/e2e/results/
+web/frontend/playwright-report/
+web/frontend/test-results/
+
+# Claude settings
+.claude/
