@@ -1382,3 +1382,61 @@ a {
     font-size: 0.9375rem;
   }
 }
+
+/* ============================================
+   QUALITY SELECTOR
+   ============================================ */
+
+.quality-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quality-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.quality-btn:hover:not(:disabled) {
+  background: var(--color-elevated);
+  color: var(--color-text-primary);
+}
+
+.quality-btn.active {
+  background: var(--color-amber-500);
+  color: var(--color-void);
+  border-color: var(--color-amber-500);
+}
+
+.quality-btn.cached {
+  border-color: var(--color-success);
+}
+
+.quality-btn.downloading {
+  background: var(--color-elevated);
+}
+
+.quality-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quality-badge {
+  font-size: 0.75rem;
+  color: var(--color-success);
+}
+
+.quality-progress {
+  font-size: 0.75rem;
+  color: var(--color-amber-500);
+}

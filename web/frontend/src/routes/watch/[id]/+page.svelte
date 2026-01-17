@@ -552,16 +552,35 @@
 						<!-- Quality Selector -->
 						<div class="control-group">
 							<label class="control-label">Quality</label>
-							<select
-								bind:value={selectedQuality}
-								class="select"
-							>
-								<option value="best">Best</option>
-								<option value="1080">1080p</option>
-								<option value="720">720p</option>
-								<option value="480">480p</option>
-								<option value="360">360p</option>
-							</select>
+							<div class="quality-selector">
+								<button
+									class="quality-btn"
+									class:active={selectedQuality === 'auto'}
+									onclick={() => handleQualitySelect('auto')}
+								>
+									Auto
+								</button>
+								{#each availableQualities as q}
+									<button
+										class="quality-btn"
+										class:active={selectedQuality === q}
+										class:cached={cachedQualities.includes(q)}
+										class:downloading={downloadingQuality === q}
+										onclick={() => handleQualitySelect(q)}
+										disabled={downloadingQuality !== null && downloadingQuality !== q}
+									>
+										{q}p
+										{#if cachedQualities.includes(q)}
+											<span class="quality-badge">✓</span>
+										{:else if downloadingQuality === q}
+											<span class="quality-progress">{Math.round(downloadProgress)}%</span>
+										{/if}
+									</button>
+								{/each}
+							</div>
+							{#if downloadError}
+								<p class="text-red-500 text-sm mt-1">{downloadError}</p>
+							{/if}
 						</div>
 
 						{#if actualHeight > 0}
