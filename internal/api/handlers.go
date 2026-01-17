@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -32,6 +33,7 @@ type Server struct {
 	sponsorblock *sponsorblock.Client
 	templates    *template.Template
 	packs        fs.FS
+	videoCache   *VideoCache
 
 	// Stream URL cache (video ID -> cached entry)
 	streamCache   map[string]*streamCacheEntry
@@ -72,6 +74,7 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 		sponsorblock: sponsorblock.NewClient(),
 		templates:    tmpl,
 		packs:        packsFS,
+		videoCache:   NewVideoCache(),
 		streamCache:  make(map[string]*streamCacheEntry),
 	}, nil
 }
@@ -1210,56 +1213,96 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
 	quality := r.URL.Query().Get("quality")
 	if quality == "" {
 		quality = "720"
 	}
-	adaptive := r.URL.Query().Get("adaptive")
-	useAdaptive := adaptive == "1" || adaptive == "true"
 
-	if useAdaptive {
-		videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
-		if err != nil {
-			log.Printf("Failed to get adaptive stream URLs for %s: %v", videoID, err)
-			videoStreamURL = ""
-			audioStreamURL = ""
-		}
+	cacheKey := CacheKey(videoID, quality)
 
-		if videoStreamURL != "" && audioStreamURL != "" {
-			cmd := exec.CommandContext(
-				r.Context(),
-				"ffmpeg",
-				"-i", videoStreamURL,
-				"-i", audioStreamURL,
-				"-c", "copy",
-				"-f", "mp4",
-				"-movflags", "frag_keyframe+empty_moov",
-				"pipe:1",
-			)
-
-			var stderr bytes.Buffer
-			cmd.Stdout = w
-			cmd.Stderr = &stderr
-
-			w.Header().Set("Content-Type", "video/mp4")
-			w.Header().Set("Cache-Control", "no-store")
-
-			if err := cmd.Run(); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return
-				}
-				log.Printf("ffmpeg mux failed for %s: %v, stderr: %s", videoID, err, stderr.String())
-				http.Error(w, "Failed to start stream", http.StatusBadGateway)
-			}
-			return
-		}
+	// Check cache first
+	if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
+		log.Printf("Serving cached video: %s", cacheKey)
+		http.ServeFile(w, r, cachedPath)
+		return
 	}
 
+	// Check if another request is already muxing this video
+	shouldMux, done := s.videoCache.WaitForMuxing(cacheKey)
+	if !shouldMux {
+		// Another goroutine finished muxing, check cache again
+		if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
+			http.ServeFile(w, r, cachedPath)
+			return
+		}
+		// Muxing failed, fall through to try again or fallback
+	}
+
+	if done != nil {
+		defer done()
+	}
+
+	// Get video and audio URLs
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
+	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
+	if err != nil {
+		log.Printf("Failed to get adaptive URLs for %s: %v, trying progressive", videoID, err)
+		s.serveProgressiveFallback(w, r, videoID, quality)
+		return
+	}
+
+	// If no separate audio, try progressive
+	if audioStreamURL == "" {
+		log.Printf("No separate audio for %s, using progressive", videoID)
+		s.serveProgressiveFallback(w, r, videoID, quality)
+		return
+	}
+
+	// Mux video and audio to cache file
+	outputPath := s.videoCache.CachePath(cacheKey)
+	tempPath := outputPath + ".tmp"
+
+	log.Printf("Muxing video %s at quality %s", videoID, quality)
+
+	cmd := exec.Command(
+		"ffmpeg",
+		"-y",
+		"-i", videoStreamURL,
+		"-i", audioStreamURL,
+		"-c", "copy",
+		"-movflags", "+faststart",
+		"-f", "mp4",
+		tempPath,
+	)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("ffmpeg mux failed for %s: %v, stderr: %s", videoID, err, stderr.String())
+		os.Remove(tempPath)
+		s.serveProgressiveFallback(w, r, videoID, quality)
+		return
+	}
+
+	// Move temp file to final location
+	if err := os.Rename(tempPath, outputPath); err != nil {
+		log.Printf("Failed to rename temp file for %s: %v", videoID, err)
+		os.Remove(tempPath)
+		s.serveProgressiveFallback(w, r, videoID, quality)
+		return
+	}
+
+	log.Printf("Successfully muxed video %s, serving from cache", videoID)
+	http.ServeFile(w, r, outputPath)
+}
+
+func (s *Server) serveProgressiveFallback(w http.ResponseWriter, r *http.Request, videoID, quality string) {
+	videoURL := "https://www.youtube.com/watch?v=" + videoID
 	streamURL, err := s.ytdlp.GetStreamURL(videoURL, quality)
 	if err != nil {
-		log.Printf("Failed to get stream URL for %s: %v", videoID, err)
-		http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
+		log.Printf("Failed to get progressive stream URL for %s: %v", videoID, err)
+		http.Error(w, "Failed to get stream URL", http.StatusBadGateway)
 		return
 	}
 
@@ -1269,12 +1312,11 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to start stream", http.StatusInternalServerError)
 		return
 	}
+
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		req.Header.Set("Range", rangeHeader)
 	}
-	if req.Header.Get("User-Agent") == "" {
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Feeds/1.0)")
-	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Feeds/1.0)")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -1284,9 +1326,6 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Upstream stream request failed for %s: %v", videoID, err)
 		http.Error(w, "Failed to start stream", http.StatusBadGateway)
 		return
-	}
-	if resp.StatusCode >= http.StatusBadRequest {
-		log.Printf("Upstream stream response for %s: %s (content-type=%q, server=%q)", videoID, resp.Status, resp.Header.Get("Content-Type"), resp.Header.Get("Server"))
 	}
 	defer resp.Body.Close()
 
@@ -1299,13 +1338,7 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-
-	if _, copyErr := io.Copy(w, resp.Body); copyErr != nil {
-		if errors.Is(copyErr, context.Canceled) || errors.Is(copyErr, context.DeadlineExceeded) {
-			return
-		}
-		log.Printf("Stream copy error for %s (client may have disconnected): %v", videoID, copyErr)
-	}
+	io.Copy(w, resp.Body)
 }
 
 func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
