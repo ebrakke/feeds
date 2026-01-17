@@ -131,6 +131,10 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/download/{id}", s.handleDownload)
 	mux.HandleFunc("GET /api/stream/{id}", s.handleStreamProxy)
 
+	mux.HandleFunc("POST /api/videos/{id}/download", s.handleStartDownload)
+	mux.HandleFunc("GET /api/videos/{id}/download/status", s.handleDownloadStatus)
+	mux.HandleFunc("GET /api/videos/{id}/qualities", s.handleGetQualities)
+
 	mux.HandleFunc("POST /api/import/url", s.handleAPIImportURL)
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
 	mux.HandleFunc("POST /api/import/organize", s.handleAPIOrganize)
@@ -1726,4 +1730,115 @@ func (s *Server) handlePackFile(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data)
+}
+
+// handleStartDownload starts a background download for a specific quality
+func (s *Server) handleStartDownload(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	var req struct {
+		Quality string `json:"quality"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Quality == "" || req.Quality == "auto" {
+		http.Error(w, "Quality must be specified (e.g., 720, 1080)", http.StatusBadRequest)
+		return
+	}
+
+	download, err := s.downloadManager.StartDownload(videoID, req.Quality)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  download.Status,
+		"quality": download.Quality,
+	})
+}
+
+// handleDownloadStatus provides SSE progress updates for downloads
+func (s *Server) handleDownloadStatus(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	ch := s.downloadManager.Subscribe(videoID)
+	defer s.downloadManager.Unsubscribe(videoID, ch)
+
+	// Send current status first
+	status := s.downloadManager.GetStatus(videoID)
+	for quality, d := range status {
+		data, _ := json.Marshal(DownloadProgress{
+			Quality: quality,
+			Status:  d.Status,
+			Error:   d.Error,
+		})
+		fmt.Fprintf(w, "event: status\ndata: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case progress, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(progress)
+			fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
+			flusher.Flush()
+
+			if progress.Status == "complete" || progress.Status == "error" {
+				return
+			}
+		}
+	}
+}
+
+// handleGetQualities returns available, cached, and downloading qualities for a video
+func (s *Server) handleGetQualities(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	// Available qualities (hardcoded for now, could query yt-dlp)
+	available := []string{"360", "480", "720", "1080"}
+
+	// Check which are cached
+	var cached []string
+	for _, q := range available {
+		cacheKey := CacheKey(videoID, q)
+		if _, ok := s.videoCache.Get(cacheKey); ok {
+			cached = append(cached, q)
+		}
+	}
+
+	// Check which is downloading
+	var downloading *string
+	status := s.downloadManager.GetStatus(videoID)
+	for quality, d := range status {
+		if d.Status == "downloading" || d.Status == "muxing" {
+			downloading = &quality
+			break
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"available":   available,
+		"cached":      cached,
+		"downloading": downloading,
+	})
 }
