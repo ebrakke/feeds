@@ -55,3 +55,12 @@ export interface GroupSuggestion {
 	name: string;
 	channels: { url: string; name: string }[];
 }
+
+export interface SponsorBlockSegment {
+	uuid: string;
+	startTime: number;
+	endTime: number;
+	category: string;
+	actionType: string;
+	votes: number;
+}

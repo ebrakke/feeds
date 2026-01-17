@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getStreamURLs } from '$lib/api';
-	import type { Feed, Video, WatchProgress, ChannelMembership } from '$lib/types';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getStreamURLs, getSegments } from '$lib/api';
+	import type { Feed, Video, WatchProgress, ChannelMembership, SponsorBlockSegment } from '$lib/types';
 
 	let videoId = $derived($page.params.id ?? '');
 
@@ -54,6 +54,37 @@
 	const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 	let playbackSpeed = $state(1);
 
+	// SponsorBlock
+	let segments = $state<SponsorBlockSegment[]>([]);
+	let sponsorBlockEnabled = $state(true);
+	let showSkipNotice = $state(false);
+	let skipNoticeCategory = $state('');
+	let skipNoticeTimeout: ReturnType<typeof setTimeout> | null = null;
+	let lastSkippedSegment: string | null = null;
+
+	// Category colors for timeline markers
+	const categoryColors: Record<string, string> = {
+		sponsor: '#00d400',
+		intro: '#00ffff',
+		outro: '#0202ed',
+		interaction: '#cc00ff',
+		selfpromo: '#ffff00',
+		music_offtopic: '#ff9900',
+		preview: '#008fd6',
+		filler: '#7300ff'
+	};
+
+	const categoryNames: Record<string, string> = {
+		sponsor: 'Sponsor',
+		intro: 'Intro',
+		outro: 'Outro',
+		interaction: 'Interaction Reminder',
+		selfpromo: 'Self-Promotion',
+		music_offtopic: 'Non-Music',
+		preview: 'Preview',
+		filler: 'Filler'
+	};
+
 	function loadSavedSpeed() {
 		if (typeof localStorage !== 'undefined') {
 			const saved = localStorage.getItem('playbackSpeed');
@@ -63,6 +94,54 @@
 					playbackSpeed = parsed;
 				}
 			}
+		}
+	}
+
+	function loadSponsorBlockSetting() {
+		if (typeof localStorage !== 'undefined') {
+			const saved = localStorage.getItem('sponsorBlockEnabled');
+			if (saved !== null) {
+				sponsorBlockEnabled = saved === 'true';
+			}
+		}
+	}
+
+	function setSponsorBlockEnabled(enabled: boolean) {
+		sponsorBlockEnabled = enabled;
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('sponsorBlockEnabled', enabled.toString());
+		}
+	}
+
+	function checkForSegmentSkip(currentTime: number) {
+		if (!sponsorBlockEnabled || !videoElement) return;
+
+		for (const segment of segments) {
+			// Skip if we've already skipped this segment recently
+			if (lastSkippedSegment === segment.uuid) continue;
+
+			// Check if we're in a skip segment (with 0.5s tolerance for entry)
+			if (currentTime >= segment.startTime && currentTime < segment.endTime - 0.5) {
+				// Skip to end of segment
+				videoElement.currentTime = segment.endTime;
+				lastSkippedSegment = segment.uuid;
+
+				// Show skip notice
+				skipNoticeCategory = categoryNames[segment.category] || segment.category;
+				showSkipNotice = true;
+				if (skipNoticeTimeout) clearTimeout(skipNoticeTimeout);
+				skipNoticeTimeout = setTimeout(() => {
+					showSkipNotice = false;
+				}, 3000);
+
+				break;
+			}
+		}
+
+		// Reset lastSkippedSegment if we're past all segments
+		const maxEnd = Math.max(...segments.map(s => s.endTime), 0);
+		if (currentTime > maxEnd + 1) {
+			lastSkippedSegment = null;
 		}
 	}
 
@@ -146,6 +225,9 @@
 		nearbyVideos = [];
 		nearbyProgressMap = {};
 		nearbyFeedId = 0;
+		segments = [];
+		lastSkippedSegment = null;
+		showSkipNotice = false;
 
 		// Load video info
 		try {
@@ -163,7 +245,7 @@
 			loading = false;
 		}
 
-		// Load nearby videos (don't block on this)
+		// Load nearby videos and SponsorBlock segments (don't block on these)
 		try {
 			const nearby = await getNearbyVideos(id, 20);
 			nearbyVideos = nearby.videos;
@@ -171,6 +253,14 @@
 			nearbyFeedId = nearby.feedId;
 		} catch (e) {
 			console.warn('Failed to load nearby videos:', e);
+		}
+
+		// Load SponsorBlock segments
+		try {
+			const data = await getSegments(id);
+			segments = data.segments || [];
+		} catch (e) {
+			console.warn('Failed to load SponsorBlock segments:', e);
 		}
 	}
 
@@ -417,8 +507,9 @@
 	});
 
 	onMount(async () => {
-		// Load saved playback speed
+		// Load saved settings
 		loadSavedSpeed();
+		loadSponsorBlockSetting();
 
 		// Load feeds (only once)
 		try {
@@ -478,6 +569,9 @@
 
 	function handleTimeUpdate() {
 		saveProgress();
+		if (videoElement) {
+			checkForSegmentSkip(videoElement.currentTime);
+		}
 	}
 
 	function handlePause() {
@@ -611,14 +705,48 @@
 					</div>
 				</div>
 			{/if}
+			<!-- SponsorBlock skip notice -->
+			{#if showSkipNotice}
+				<div class="absolute bottom-16 left-4 bg-black/80 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-fade-in">
+					<svg class="w-4 h-4 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+						<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+					</svg>
+					<span>Skipped {skipNoticeCategory}</span>
+				</div>
+			{/if}
 		{/if}
 	</div>
+
+	<!-- SponsorBlock segment markers (shown below video) -->
+	{#if segments.length > 0 && videoElement}
+		<div class="relative h-1 bg-gray-700 rounded-full mb-2 overflow-hidden" title="SponsorBlock segments">
+			{#each segments as segment}
+				{@const duration = videoElement.duration || 1}
+				{@const left = (segment.startTime / duration) * 100}
+				{@const width = ((segment.endTime - segment.startTime) / duration) * 100}
+				<div
+					class="absolute top-0 h-full opacity-80 hover:opacity-100 cursor-pointer"
+					style="left: {left}%; width: {Math.max(width, 0.5)}%; background-color: {categoryColors[segment.category] || '#888'}"
+					title="{categoryNames[segment.category] || segment.category}: {Math.floor(segment.startTime)}s - {Math.floor(segment.endTime)}s"
+				></div>
+			{/each}
+		</div>
+	{/if}
 
 	{#if !loading && !error}
 		<div class="flex flex-wrap items-center gap-3 mb-4">
 			<details class="bg-gray-800/60 border border-gray-700 rounded px-3 py-2 text-sm">
 				<summary class="cursor-pointer text-gray-300 select-none">Settings</summary>
-				<div class="mt-2 flex items-center gap-2 text-gray-400">
+				<div class="mt-2 space-y-2 text-gray-400">
+					<label class="flex items-center gap-2">
+						<input
+							type="checkbox"
+							checked={sponsorBlockEnabled}
+							onchange={(e) => setSponsorBlockEnabled(e.currentTarget.checked)}
+							class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-green-500 focus:ring-green-500 focus:ring-offset-0"
+						/>
+						SponsorBlock (skip sponsors)
+					</label>
 					<label class="flex items-center gap-2">
 						<input
 							type="checkbox"
@@ -629,6 +757,14 @@
 					</label>
 				</div>
 			</details>
+			{#if segments.length > 0}
+				<span class="text-xs text-gray-500 flex items-center gap-1" title="SponsorBlock segments found">
+					<svg class="w-3.5 h-3.5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+						<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+					</svg>
+					{segments.length} segment{segments.length !== 1 ? 's' : ''}
+				</span>
+			{/if}
 			<label class="text-sm text-gray-400">Quality</label>
 			<select
 				bind:value={selectedQuality}

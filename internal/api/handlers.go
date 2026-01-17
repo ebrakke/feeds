@@ -20,16 +20,18 @@ import (
 	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/db"
 	"github.com/erik/feeds/internal/models"
+	"github.com/erik/feeds/internal/sponsorblock"
 	"github.com/erik/feeds/internal/youtube"
 	"github.com/erik/feeds/internal/ytdlp"
 )
 
 type Server struct {
-	db        *db.DB
-	ytdlp     *ytdlp.YTDLP
-	ai        *ai.Client
-	templates *template.Template
-	packs     fs.FS
+	db           *db.DB
+	ytdlp        *ytdlp.YTDLP
+	ai           *ai.Client
+	sponsorblock *sponsorblock.Client
+	templates    *template.Template
+	packs        fs.FS
 
 	// Stream URL cache (video ID -> cached entry)
 	streamCache   map[string]*streamCacheEntry
@@ -64,12 +66,13 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 	}
 
 	return &Server{
-		db:          database,
-		ytdlp:       yt,
-		ai:          aiClient,
-		templates:   tmpl,
-		packs:       packsFS,
-		streamCache: make(map[string]*streamCacheEntry),
+		db:           database,
+		ytdlp:        yt,
+		ai:           aiClient,
+		sponsorblock: sponsorblock.NewClient(),
+		templates:    tmpl,
+		packs:        packsFS,
+		streamCache:  make(map[string]*streamCacheEntry),
 	}, nil
 }
 
@@ -118,6 +121,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/videos/history", s.handleAPIGetHistory)
 	mux.HandleFunc("GET /api/videos/{id}/info", s.handleWatchInfo)
 	mux.HandleFunc("GET /api/videos/{id}/nearby", s.handleAPINearbyVideos)
+	mux.HandleFunc("GET /api/videos/{id}/segments", s.handleAPIGetSegments)
 	mux.HandleFunc("POST /api/videos/{id}/progress", s.handleUpdateWatchProgress)
 	mux.HandleFunc("POST /api/videos/{id}/watched", s.handleAPIMarkWatched)
 	mux.HandleFunc("DELETE /api/videos/{id}/watched", s.handleAPIMarkUnwatched)
@@ -945,6 +949,103 @@ func (s *Server) handleAPINearbyVideos(w http.ResponseWriter, r *http.Request) {
 		"videos":      videos,
 		"feedId":      feedID,
 		"progressMap": progressMap,
+	})
+}
+
+// handleAPIGetSegments returns SponsorBlock segments for a video
+func (s *Server) handleAPIGetSegments(w http.ResponseWriter, r *http.Request) {
+	videoID := r.PathValue("id")
+
+	// Check cache first
+	hasCached, fetchedAt, err := s.db.HasSponsorBlockSegments(videoID)
+	if err != nil {
+		log.Printf("Failed to check SponsorBlock cache: %v", err)
+	}
+
+	// Cache TTL: 24 hours
+	cacheTTL := 24 * time.Hour
+
+	// If we have fresh cached data, return it
+	if hasCached && time.Since(fetchedAt) < cacheTTL {
+		segments, err := s.db.GetSponsorBlockSegments(videoID)
+		if err != nil {
+			log.Printf("Failed to get cached segments: %v", err)
+		} else {
+			// Filter out the placeholder segment
+			var result []map[string]any
+			for _, seg := range segments {
+				if seg.SegmentUUID == "__no_segments__" {
+					continue
+				}
+				result = append(result, map[string]any{
+					"uuid":       seg.SegmentUUID,
+					"startTime":  seg.StartTime,
+					"endTime":    seg.EndTime,
+					"category":   seg.Category,
+					"actionType": seg.ActionType,
+					"votes":      seg.Votes,
+				})
+			}
+			jsonResponse(w, map[string]any{
+				"segments": result,
+				"cached":   true,
+			})
+			return
+		}
+	}
+
+	// Fetch from SponsorBlock API
+	apiSegments, err := s.sponsorblock.GetSegments(videoID, nil)
+	if err != nil {
+		log.Printf("Failed to fetch SponsorBlock segments for %s: %v", videoID, err)
+		// Return empty array, don't cache failure
+		jsonResponse(w, map[string]any{
+			"segments": []any{},
+			"error":    "Failed to fetch segments",
+		})
+		return
+	}
+
+	// Convert to DB format and save
+	if len(apiSegments) > 0 {
+		dbSegments := make([]db.SponsorBlockSegment, len(apiSegments))
+		for i, seg := range apiSegments {
+			dbSegments[i] = db.SponsorBlockSegment{
+				VideoID:     videoID,
+				SegmentUUID: seg.UUID,
+				StartTime:   seg.Segment[0],
+				EndTime:     seg.Segment[1],
+				Category:    seg.Category,
+				ActionType:  seg.ActionType,
+				Votes:       seg.Votes,
+			}
+		}
+		if err := s.db.SaveSponsorBlockSegments(videoID, dbSegments); err != nil {
+			log.Printf("Failed to cache SponsorBlock segments: %v", err)
+		}
+	} else {
+		// Mark that we've fetched but found no segments
+		if err := s.db.MarkSponsorBlockFetched(videoID); err != nil {
+			log.Printf("Failed to mark SponsorBlock fetch: %v", err)
+		}
+	}
+
+	// Return API response format
+	var result []map[string]any
+	for _, seg := range apiSegments {
+		result = append(result, map[string]any{
+			"uuid":       seg.UUID,
+			"startTime":  seg.Segment[0],
+			"endTime":    seg.Segment[1],
+			"category":   seg.Category,
+			"actionType": seg.ActionType,
+			"votes":      seg.Votes,
+		})
+	}
+
+	jsonResponse(w, map[string]any{
+		"segments": result,
+		"cached":   false,
 	})
 }
 

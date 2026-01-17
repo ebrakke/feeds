@@ -1,4 +1,4 @@
-import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion, ChannelMembership } from './types';
+import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion, ChannelMembership, SponsorBlockSegment } from './types';
 
 const API_BASE = '/api';
 
@@ -245,4 +245,13 @@ export async function confirmOrganize(
 		method: 'POST',
 		body: JSON.stringify({ groups, channelNames })
 	});
+}
+
+// SponsorBlock
+export async function getSegments(videoId: string): Promise<{
+	segments: SponsorBlockSegment[];
+	cached: boolean;
+	error?: string;
+}> {
+	return fetchJSON(`/videos/${videoId}/segments`);
 }

@@ -83,6 +83,20 @@ func (db *DB) migrate() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_watch_progress_watched_at ON watch_progress(watched_at DESC);
+
+	CREATE TABLE IF NOT EXISTS sponsorblock_segments (
+		video_id TEXT NOT NULL,
+		segment_uuid TEXT NOT NULL,
+		start_time REAL NOT NULL,
+		end_time REAL NOT NULL,
+		category TEXT NOT NULL,
+		action_type TEXT NOT NULL DEFAULT 'skip',
+		votes INTEGER DEFAULT 0,
+		fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (video_id, segment_uuid)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_sponsorblock_video ON sponsorblock_segments(video_id);
 	`
 	_, err := db.conn.Exec(schema)
 	if err != nil {
@@ -677,6 +691,101 @@ func (db *DB) MarkAsWatched(videoID string) error {
 
 func (db *DB) DeleteWatchProgress(videoID string) error {
 	_, err := db.conn.Exec("DELETE FROM watch_progress WHERE video_id = ?", videoID)
+	return err
+}
+
+// SponsorBlock segment operations
+
+type SponsorBlockSegment struct {
+	VideoID    string    `json:"video_id"`
+	SegmentUUID string   `json:"segment_uuid"`
+	StartTime  float64   `json:"start_time"`
+	EndTime    float64   `json:"end_time"`
+	Category   string    `json:"category"`
+	ActionType string    `json:"action_type"`
+	Votes      int       `json:"votes"`
+	FetchedAt  time.Time `json:"fetched_at"`
+}
+
+// GetSponsorBlockSegments returns cached segments for a video
+func (db *DB) GetSponsorBlockSegments(videoID string) ([]SponsorBlockSegment, error) {
+	rows, err := db.conn.Query(`
+		SELECT video_id, segment_uuid, start_time, end_time, category, action_type, votes, fetched_at
+		FROM sponsorblock_segments
+		WHERE video_id = ?
+		ORDER BY start_time
+	`, videoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var segments []SponsorBlockSegment
+	for rows.Next() {
+		var s SponsorBlockSegment
+		if err := rows.Scan(&s.VideoID, &s.SegmentUUID, &s.StartTime, &s.EndTime, &s.Category, &s.ActionType, &s.Votes, &s.FetchedAt); err != nil {
+			return nil, err
+		}
+		segments = append(segments, s)
+	}
+	return segments, rows.Err()
+}
+
+// HasSponsorBlockSegments checks if we have cached segments for a video (even if empty)
+func (db *DB) HasSponsorBlockSegments(videoID string) (bool, time.Time, error) {
+	var fetchedAt time.Time
+	err := db.conn.QueryRow(`
+		SELECT fetched_at FROM sponsorblock_segments WHERE video_id = ? LIMIT 1
+	`, videoID).Scan(&fetchedAt)
+	if err == sql.ErrNoRows {
+		return false, time.Time{}, nil
+	}
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	return true, fetchedAt, nil
+}
+
+// SaveSponsorBlockSegments saves segments for a video (replaces existing)
+func (db *DB) SaveSponsorBlockSegments(videoID string, segments []SponsorBlockSegment) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete existing segments for this video
+	if _, err := tx.Exec("DELETE FROM sponsorblock_segments WHERE video_id = ?", videoID); err != nil {
+		return err
+	}
+
+	// Insert new segments
+	stmt, err := tx.Prepare(`
+		INSERT INTO sponsorblock_segments (video_id, segment_uuid, start_time, end_time, category, action_type, votes, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	for _, s := range segments {
+		if _, err := stmt.Exec(videoID, s.SegmentUUID, s.StartTime, s.EndTime, s.Category, s.ActionType, s.Votes, now); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// MarkSponsorBlockFetched marks that we've fetched segments for a video (even if none found)
+func (db *DB) MarkSponsorBlockFetched(videoID string) error {
+	_, err := db.conn.Exec(`
+		INSERT INTO sponsorblock_segments (video_id, segment_uuid, start_time, end_time, category, action_type, votes, fetched_at)
+		VALUES (?, '__no_segments__', 0, 0, 'none', 'none', 0, ?)
+		ON CONFLICT(video_id, segment_uuid) DO UPDATE SET fetched_at = excluded.fetched_at
+	`, videoID, time.Now())
 	return err
 }
 
