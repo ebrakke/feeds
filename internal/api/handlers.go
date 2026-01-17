@@ -1096,8 +1096,8 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	s.streamMuxedVideo(w, r, videoID, quality, cacheKey)
 }
 
-// streamMuxedVideo streams muxed video directly using fragmented MP4
-// This allows playback to start immediately while ffmpeg continues muxing
+// streamMuxedVideo streams muxed video directly using WebM/Matroska
+// Matroska supports streaming with duration metadata, unlike fragmented MP4
 func (s *Server) streamMuxedVideo(w http.ResponseWriter, r *http.Request, videoID, quality, cacheKey string) {
 	videoURL := "https://www.youtube.com/watch?v=" + videoID
 
@@ -1119,17 +1119,15 @@ func (s *Server) streamMuxedVideo(w http.ResponseWriter, r *http.Request, videoI
 
 	log.Printf("Streaming muxed video for %s at quality %s", videoID, quality)
 
-	// Use fragmented MP4 for immediate playback
-	// frag_keyframe: create fragment at each keyframe
-	// empty_moov: don't require full moov atom upfront
-	// default_base_moof: required for compatibility
+	// Use Matroska container which supports streaming with duration
+	// Unlike MP4 which needs moov atom at the start, MKV can stream immediately
+	// and still provide duration/seeking info
 	cmd := exec.CommandContext(r.Context(),
 		"ffmpeg",
 		"-i", videoStreamURL,
 		"-i", audioStreamURL,
 		"-c", "copy",
-		"-movflags", "frag_keyframe+empty_moov+default_base_moof",
-		"-f", "mp4",
+		"-f", "matroska",
 		"pipe:1",
 	)
 
@@ -1153,42 +1151,18 @@ func (s *Server) streamMuxedVideo(w http.ResponseWriter, r *http.Request, videoI
 	}
 
 	// Set headers for streaming
-	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Type", "video/x-matroska")
 	w.Header().Set("Cache-Control", "no-cache")
 
-	// Stream output to client
-	// Also write to cache file for future requests
-	cachePath := s.videoCache.CachePath(cacheKey)
-	tempPath := cachePath + ".tmp"
-
-	cacheFile, cacheErr := os.Create(tempPath)
-	if cacheErr != nil {
-		log.Printf("Failed to create cache file: %v", cacheErr)
-		// Continue without caching
-	}
-
-	// Use MultiWriter to write to both response and cache
-	var writer io.Writer = w
-	if cacheFile != nil {
-		writer = io.MultiWriter(w, cacheFile)
-	}
-
-	_, copyErr := io.Copy(writer, stdout)
+	// Stream directly to client
+	_, copyErr := io.Copy(w, stdout)
 
 	// Wait for ffmpeg to finish
 	cmdErr := cmd.Wait()
 
-	// Handle cache file
-	if cacheFile != nil {
-		cacheFile.Close()
-		if cmdErr == nil && copyErr == nil {
-			// Muxing succeeded - but fragmented MP4 isn't ideal for seeking
-			// So we'll re-mux with faststart in the background for better seeking
-			os.Remove(tempPath) // Remove fragmented version
-			go s.muxInBackground(videoID, quality, cacheKey)
-		} else {
-			os.Remove(tempPath)
-		}
+	// Kick off background mux for MP4 cache (better for future seeking)
+	if cmdErr == nil && copyErr == nil {
+		go s.muxInBackground(videoID, quality, cacheKey)
 	}
 
 	if cmdErr != nil {
