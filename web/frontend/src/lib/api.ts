@@ -219,15 +219,6 @@ export async function importWatchHistory(file: File): Promise<{
 	return res.json();
 }
 
-// Streaming
-export async function getStreamURLs(id: string, quality: string): Promise<{
-	videoURL: string;
-	audioURL: string;
-	dashURL?: string;
-}> {
-	return fetchJSON(`/stream-urls/${id}?quality=${encodeURIComponent(quality)}`);
-}
-
 export async function organizeWatchHistory(channels: WatchHistoryChannel[]): Promise<{
 	groups: GroupSuggestion[];
 }> {

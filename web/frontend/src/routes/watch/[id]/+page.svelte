@@ -13,7 +13,6 @@
 	let thumbnailURL = $state('');
 
 	let selectedQuality = $state('720');
-	let streamError = $state<string | null>(null);
 	let actualHeight = $state(0);
 	let actualWidth = $state(0);
 	let channelMemberships = $state<ChannelMembership[]>([]);
@@ -184,7 +183,6 @@
 		channelURL = '';
 		viewCount = 0;
 		thumbnailURL = '';
-		streamError = null;
 		actualHeight = 0;
 		actualWidth = 0;
 		channelMemberships = [];
@@ -420,29 +418,6 @@
 					>
 						Your browser does not support the video tag.
 					</video>
-
-					{#if streamError}
-						<div class="absolute inset-0 flex items-center justify-center bg-void/90">
-							<div class="text-center px-6">
-								<div class="w-16 h-16 rounded-full bg-crimson-500/10 flex items-center justify-center mx-auto mb-4">
-									<svg class="w-8 h-8 text-crimson-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<circle cx="12" cy="12" r="10"/>
-										<line x1="12" y1="8" x2="12" y2="12"/>
-										<line x1="12" y1="16" x2="12.01" y2="16"/>
-									</svg>
-								</div>
-								<p class="text-crimson-400 mb-4">{streamError}</p>
-								<a
-									href="https://www.youtube.com/watch?v={videoId}"
-									target="_blank"
-									rel="noopener"
-									class="btn btn-secondary btn-sm"
-								>
-									Watch on YouTube
-								</a>
-							</div>
-						</div>
-					{/if}
 
 					<!-- Skip Notice -->
 					{#if showSkipNotice}
