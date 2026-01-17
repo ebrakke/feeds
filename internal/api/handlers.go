@@ -1,18 +1,13 @@
 package api
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -1078,202 +1073,67 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 	quality := r.URL.Query().Get("quality")
 	if quality == "" {
-		quality = "720"
+		quality = "auto"
 	}
 
-	cacheKey := CacheKey(videoID, quality)
-
-	// Check cache first - if we have a muxed file, serve it (best quality + seeking)
-	if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
-		log.Printf("Serving cached video: %s", cacheKey)
-		http.ServeFile(w, r, cachedPath)
-		return
-	}
-
-	// No cache - stream muxed video directly (720p immediately)
-	// This uses fragmented MP4 which allows playback to start immediately
-	// while ffmpeg continues muxing in the background
-	s.streamMuxedVideo(w, r, videoID, quality, cacheKey)
-}
-
-// streamMuxedVideo streams muxed video directly using WebM/Matroska
-// Matroska supports streaming with duration metadata, unlike fragmented MP4
-func (s *Server) streamMuxedVideo(w http.ResponseWriter, r *http.Request, videoID, quality, cacheKey string) {
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
-
-	// Get adaptive stream URLs (separate video + audio for 720p+)
-	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
-	if err != nil {
-		log.Printf("Failed to get adaptive URLs for %s: %v", videoID, err)
-		// Fall back to progressive
-		s.serveProgressiveFallback(w, r, videoID, quality)
-		return
-	}
-
-	// If no separate audio, fall back to progressive (already combined)
-	if audioStreamURL == "" {
-		log.Printf("No separate audio for %s, using progressive", videoID)
-		s.serveProgressiveFallback(w, r, videoID, quality)
-		return
-	}
-
-	log.Printf("Streaming muxed video for %s at quality %s", videoID, quality)
-
-	// Use Matroska container which supports streaming with duration
-	// Unlike MP4 which needs moov atom at the start, MKV can stream immediately
-	// and still provide duration/seeking info
-	cmd := exec.CommandContext(r.Context(),
-		"ffmpeg",
-		"-i", videoStreamURL,
-		"-i", audioStreamURL,
-		"-c", "copy",
-		"-f", "matroska",
-		"pipe:1",
-	)
-
-	// Capture stderr for debugging
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	// Get stdout pipe
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Printf("Failed to create stdout pipe: %v", err)
-		s.serveProgressiveFallback(w, r, videoID, quality)
-		return
-	}
-
-	// Start ffmpeg
-	if err := cmd.Start(); err != nil {
-		log.Printf("Failed to start ffmpeg: %v", err)
-		s.serveProgressiveFallback(w, r, videoID, quality)
-		return
-	}
-
-	// Set headers for streaming
-	w.Header().Set("Content-Type", "video/x-matroska")
-	w.Header().Set("Cache-Control", "no-cache")
-
-	// Stream directly to client
-	_, copyErr := io.Copy(w, stdout)
-
-	// Wait for ffmpeg to finish
-	cmdErr := cmd.Wait()
-
-	// Kick off background mux for MP4 cache (better for future seeking)
-	if cmdErr == nil && copyErr == nil {
-		go s.muxInBackground(videoID, quality, cacheKey)
-	}
-
-	if cmdErr != nil {
-		// Only log if it wasn't due to client disconnect
-		if r.Context().Err() == nil {
-			log.Printf("ffmpeg error for %s: %v, stderr: %s", videoID, cmdErr, stderr.String())
+	// For non-auto quality, check cache first
+	if quality != "auto" {
+		cacheKey := CacheKey(videoID, quality)
+		if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
+			log.Printf("Serving cached video: %s", cacheKey)
+			http.ServeFile(w, r, cachedPath)
+			return
 		}
+		// No cache for this quality - return 404, client should use auto
+		http.Error(w, "Quality not cached", http.StatusNotFound)
+		return
 	}
+
+	// Auto quality: proxy progressive stream from YouTube
+	s.proxyProgressiveStream(w, r, videoID)
 }
 
-// muxInBackground fetches video+audio and muxes them for future requests
-func (s *Server) muxInBackground(videoID, quality, cacheKey string) {
-	// Check if already muxing
-	shouldMux, done := s.videoCache.WaitForMuxing(cacheKey)
-	if !shouldMux {
-		return // Another goroutine is handling it
-	}
-	defer done()
-
-	// Double-check cache (might have been created while waiting)
-	if _, ok := s.videoCache.Get(cacheKey); ok {
-		return
-	}
-
+func (s *Server) proxyProgressiveStream(w http.ResponseWriter, r *http.Request, videoID string) {
 	videoURL := "https://www.youtube.com/watch?v=" + videoID
-	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
+
+	// Get progressive stream URL (combined video+audio, typically up to 720p)
+	streamURL, err := s.ytdlp.GetStreamURL(videoURL, "best")
 	if err != nil {
-		log.Printf("Background mux: failed to get adaptive URLs for %s: %v", videoID, err)
+		log.Printf("Failed to get stream URL for %s: %v", videoID, err)
+		http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
 		return
 	}
 
-	if audioStreamURL == "" {
-		log.Printf("Background mux: no separate audio for %s, skipping", videoID)
-		return
-	}
-
-	outputPath := s.videoCache.CachePath(cacheKey)
-	tempPath := outputPath + ".tmp"
-
-	log.Printf("Background mux: starting for %s at quality %s", videoID, quality)
-
-	cmd := exec.Command(
-		"ffmpeg",
-		"-y",
-		"-i", videoStreamURL,
-		"-i", audioStreamURL,
-		"-c", "copy",
-		"-movflags", "+faststart",
-		"-f", "mp4",
-		tempPath,
-	)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		log.Printf("Background mux: ffmpeg failed for %s: %v, stderr: %s", videoID, err, stderr.String())
-		os.Remove(tempPath)
-		return
-	}
-
-	if err := os.Rename(tempPath, outputPath); err != nil {
-		log.Printf("Background mux: failed to rename for %s: %v", videoID, err)
-		os.Remove(tempPath)
-		return
-	}
-
-	log.Printf("Background mux: completed for %s, cached for future requests", videoID)
-}
-
-func (s *Server) serveProgressiveFallback(w http.ResponseWriter, r *http.Request, videoID, quality string) {
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
-	streamURL, err := s.ytdlp.GetStreamURL(videoURL, quality)
+	// Create request to YouTube with range header passthrough
+	req, err := http.NewRequestWithContext(r.Context(), "GET", streamURL, nil)
 	if err != nil {
-		log.Printf("Failed to get progressive stream URL for %s: %v", videoID, err)
-		http.Error(w, "Failed to get stream URL", http.StatusBadGateway)
+		http.Error(w, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, streamURL, nil)
-	if err != nil {
-		log.Printf("Failed to create upstream request for %s: %v", videoID, err)
-		http.Error(w, "Failed to start stream", http.StatusInternalServerError)
-		return
-	}
-
+	// Forward range header for seeking support
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		req.Header.Set("Range", rangeHeader)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Feeds/1.0)")
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 0} // No timeout for streaming
+	resp, err := client.Do(req)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return
-		}
-		log.Printf("Upstream stream request failed for %s: %v", videoID, err)
-		http.Error(w, "Failed to start stream", http.StatusBadGateway)
+		log.Printf("Failed to fetch stream for %s: %v", videoID, err)
+		http.Error(w, "Failed to fetch stream", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
+	// Copy response headers
 	for key, values := range resp.Header {
-		if strings.EqualFold(key, "Transfer-Encoding") {
-			continue
-		}
 		for _, value := range values {
 			w.Header().Add(key, value)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
+
+	// Stream the response
 	io.Copy(w, resp.Body)
 }
 
