@@ -149,6 +149,10 @@ func (dm *DownloadManager) broadcast(videoID string, progress DownloadProgress) 
 }
 
 func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
+	// Use a done channel to signal completion to the progress monitor
+	done := make(chan struct{})
+	defer close(done)
+
 	defer func() {
 		dm.mu.Lock()
 		delete(dm.active, key)
@@ -156,6 +160,8 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	}()
 
 	videoURL := "https://www.youtube.com/watch?v=" + videoID
+
+	log.Printf("Starting download for %s quality %s", videoID, quality)
 
 	// Get adaptive stream URLs
 	videoStreamURL, audioStreamURL, err := dm.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
@@ -168,6 +174,8 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 		dm.setError(key, videoID, quality, "No separate audio stream available for this quality")
 		return
 	}
+
+	log.Printf("Got stream URLs for %s, starting downloads", videoID)
 
 	// Create temp directory for this download
 	tempDir := filepath.Join(os.TempDir(), "feeds-download-"+videoID+"-"+quality)
@@ -190,11 +198,13 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	go func() {
 		defer wg.Done()
 		videoSize, videoErr = dm.downloadFile(videoStreamURL, videoPath)
+		log.Printf("Video download finished for %s: %d bytes, err=%v", videoID, videoSize, videoErr)
 	}()
 
 	go func() {
 		defer wg.Done()
 		audioSize, audioErr = dm.downloadFile(audioStreamURL, audioPath)
+		log.Printf("Audio download finished for %s: %d bytes, err=%v", videoID, audioSize, audioErr)
 	}()
 
 	// Monitor progress while downloading
@@ -204,6 +214,8 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 
 		for {
 			select {
+			case <-done:
+				return
 			case <-ticker.C:
 				dm.mu.RLock()
 				d, exists := dm.active[key]
@@ -220,9 +232,16 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 					downloaded += info.Size()
 				}
 
-				// Update with rough progress
+				// Update with rough progress - estimate ~15MB total for a typical video
+				estimatedTotal := int64(15 * 1024 * 1024)
+				percent := float64(downloaded) / float64(estimatedTotal) * 100
+				if percent > 95 {
+					percent = 95 // Cap at 95% until muxing is done
+				}
+
 				progress := DownloadProgress{
 					Quality:         quality,
+					Percent:         percent,
 					BytesDownloaded: downloaded,
 					Status:          d.Status,
 				}
@@ -249,8 +268,11 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	}
 	dm.mu.Unlock()
 
+	log.Printf("Downloads complete for %s, starting mux (%d + %d bytes)", videoID, videoSize, audioSize)
+
 	dm.broadcast(videoID, DownloadProgress{
 		Quality:         quality,
+		Percent:         95,
 		BytesDownloaded: videoSize + audioSize,
 		TotalBytes:      videoSize + audioSize,
 		Status:          "muxing",
@@ -282,7 +304,7 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 		return
 	}
 
-	log.Printf("Download complete: %s quality %s", videoID, quality)
+	log.Printf("Download complete: %s quality %s, saved to %s", videoID, quality, outputPath)
 
 	dm.broadcast(videoID, DownloadProgress{
 		Quality: quality,
