@@ -1114,41 +1114,45 @@ func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	if quality == "" {
 		quality = "720"
 	}
+	adaptive := r.URL.Query().Get("adaptive")
+	useAdaptive := adaptive == "1" || adaptive == "true"
 
-	videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
-	if err != nil {
-		log.Printf("Failed to get adaptive stream URLs for %s: %v", videoID, err)
-		videoStreamURL = ""
-		audioStreamURL = ""
-	}
-
-	if videoStreamURL != "" && audioStreamURL != "" {
-		cmd := exec.CommandContext(
-			r.Context(),
-			"ffmpeg",
-			"-i", videoStreamURL,
-			"-i", audioStreamURL,
-			"-c", "copy",
-			"-f", "mp4",
-			"-movflags", "frag_keyframe+empty_moov",
-			"pipe:1",
-		)
-
-		var stderr bytes.Buffer
-		cmd.Stdout = w
-		cmd.Stderr = &stderr
-
-		w.Header().Set("Content-Type", "video/mp4")
-		w.Header().Set("Cache-Control", "no-store")
-
-		if err := cmd.Run(); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
-			log.Printf("ffmpeg mux failed for %s: %v, stderr: %s", videoID, err, stderr.String())
-			http.Error(w, "Failed to start stream", http.StatusBadGateway)
+	if useAdaptive {
+		videoStreamURL, audioStreamURL, err := s.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
+		if err != nil {
+			log.Printf("Failed to get adaptive stream URLs for %s: %v", videoID, err)
+			videoStreamURL = ""
+			audioStreamURL = ""
 		}
-		return
+
+		if videoStreamURL != "" && audioStreamURL != "" {
+			cmd := exec.CommandContext(
+				r.Context(),
+				"ffmpeg",
+				"-i", videoStreamURL,
+				"-i", audioStreamURL,
+				"-c", "copy",
+				"-f", "mp4",
+				"-movflags", "frag_keyframe+empty_moov",
+				"pipe:1",
+			)
+
+			var stderr bytes.Buffer
+			cmd.Stdout = w
+			cmd.Stderr = &stderr
+
+			w.Header().Set("Content-Type", "video/mp4")
+			w.Header().Set("Cache-Control", "no-store")
+
+			if err := cmd.Run(); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				log.Printf("ffmpeg mux failed for %s: %v, stderr: %s", videoID, err, stderr.String())
+				http.Error(w, "Failed to start stream", http.StatusBadGateway)
+			}
+			return
+		}
 	}
 
 	streamURL, err := s.ytdlp.GetStreamURL(videoURL, quality)

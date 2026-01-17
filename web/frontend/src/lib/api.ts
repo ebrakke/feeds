@@ -159,14 +159,6 @@ export async function markUnwatched(id: string): Promise<void> {
 	return fetchJSON(`/videos/${id}/watched`, { method: 'DELETE' });
 }
 
-export async function getStreamURLs(id: string, quality: string): Promise<{
-	videoURL: string;
-	audioURL: string;
-	dashURL: string;
-}> {
-	return fetchJSON(`/stream-urls/${id}?quality=${encodeURIComponent(quality)}`);
-}
-
 // Import
 export async function importFromURL(url: string): Promise<Feed> {
 	return fetchJSON('/import/url', {
@@ -225,6 +217,15 @@ export async function importWatchHistory(file: File): Promise<{
 		throw new Error(error.error || res.statusText);
 	}
 	return res.json();
+}
+
+// Streaming
+export async function getStreamURLs(id: string, quality: string): Promise<{
+	videoURL: string;
+	audioURL: string;
+	dashURL?: string;
+}> {
+	return fetchJSON(`/stream-urls/${id}?quality=${encodeURIComponent(quality)}`);
 }
 
 export async function organizeWatchHistory(channels: WatchHistoryChannel[]): Promise<{

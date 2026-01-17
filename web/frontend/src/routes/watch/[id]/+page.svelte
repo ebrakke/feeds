@@ -3,7 +3,6 @@
 	import { page } from '$app/stores';
 	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getStreamURLs } from '$lib/api';
 	import type { Feed, Video, WatchProgress, ChannelMembership } from '$lib/types';
-	import * as dashjs from 'dashjs';
 
 	let videoId = $derived($page.params.id ?? '');
 
@@ -18,18 +17,23 @@
 	let streamError = $state<string | null>(null);
 	let actualHeight = $state(0);
 	let actualWidth = $state(0);
+	let useAdaptiveStreaming = $state(false);
 	let channelMemberships = $state<ChannelMembership[]>([]);
 	let feeds = $state<Feed[]>([]);
 
-	// Dash.js player state
 	let videoElement = $state<HTMLVideoElement | null>(null);
-	let audioElement = $state<HTMLAudioElement | null>(null);
-	let dashPlayer: dashjs.MediaPlayerClass | null = null;
-	let isPlaying = $state(false);
 	let hasLoadedStream = $state(false);
 	let currentVideoURL = $state('');
 	let currentAudioURL = $state('');
-	let usingDash = $state(false);
+	let usingMSE = $state(false);
+	let progressiveURL = $state('');
+	let pendingSeekTime = $state<number | null>(null);
+	let adaptiveLoadKey = '';
+
+	let mediaSource: MediaSource | null = null;
+	let mediaObjectURL = '';
+	let videoAbort: AbortController | null = null;
+	let audioAbort: AbortController | null = null;
 
 	// Nearby videos
 	let nearbyVideos = $state<Video[]>([]);
@@ -66,9 +70,6 @@
 		playbackSpeed = speed;
 		if (videoElement) {
 			videoElement.playbackRate = speed;
-		}
-		if (!usingDash && audioElement) {
-			audioElement.playbackRate = speed;
 		}
 		if (typeof localStorage !== 'undefined') {
 			localStorage.setItem('playbackSpeed', speed.toString());
@@ -118,7 +119,7 @@
 		previousVideoId = id;
 
 		// Clean up previous video
-		destroyDashPlayer();
+		cleanupMediaSource();
 
 		// Reset state for new video
 		loading = true;
@@ -133,6 +134,10 @@
 		hasLoadedStream = false;
 		currentVideoURL = '';
 		currentAudioURL = '';
+		progressiveURL = '';
+		pendingSeekTime = null;
+		adaptiveLoadKey = '';
+		usingMSE = false;
 		actualHeight = 0;
 		actualWidth = 0;
 		channelMemberships = [];
@@ -158,11 +163,6 @@
 			loading = false;
 		}
 
-		// Auto-load stream at default quality (don't block on this)
-		if (!error) {
-			handleLoadStream();
-		}
-
 		// Load nearby videos (don't block on this)
 		try {
 			const nearby = await getNearbyVideos(id, 20);
@@ -174,22 +174,136 @@
 		}
 	}
 
-	function destroyDashPlayer() {
-		if (dashPlayer) {
-			dashPlayer.reset();
-			dashPlayer = null;
+	function cleanupMediaSource() {
+		if (videoAbort) {
+			videoAbort.abort();
+			videoAbort = null;
 		}
-		usingDash = false;
+		if (audioAbort) {
+			audioAbort.abort();
+			audioAbort = null;
+		}
+		if (mediaSource && mediaSource.readyState === 'open') {
+			try {
+				mediaSource.endOfStream();
+			} catch {
+				// ignore teardown errors
+			}
+		}
+		mediaSource = null;
+		usingMSE = false;
+		if (mediaObjectURL) {
+			URL.revokeObjectURL(mediaObjectURL);
+			mediaObjectURL = '';
+		}
+		if (videoElement) {
+			videoElement.removeAttribute('src');
+			videoElement.load();
+		}
+	}
+
+	function buildMimeType(contentType: string | null, fallback: string) {
+		if (!contentType) {
+			return fallback;
+		}
+		if (contentType.includes('codecs=')) {
+			return contentType;
+		}
+		const base = contentType.split(';')[0].trim();
+		const defaults: Record<string, string> = {
+			'video/mp4': 'avc1.640028',
+			'audio/mp4': 'mp4a.40.2',
+			'video/webm': 'vp9',
+			'audio/webm': 'opus'
+		};
+		const match = fallback.match(/codecs="([^"]+)"/);
+		const codec = match ? match[1] : (defaults[base] || '');
+		return codec ? `${base}; codecs="${codec}"` : base;
+	}
+
+	async function getContentType(url: string) {
+		const res = await fetch(url, { headers: { Range: 'bytes=0-0' } });
+		if (!res.ok) {
+			return '';
+		}
+		return res.headers.get('content-type') || '';
+	}
+
+	function waitForUpdateEnd(sb: SourceBuffer) {
+		return new Promise<void>((resolve, reject) => {
+			const onEnd = () => {
+				sb.removeEventListener('updateend', onEnd);
+				resolve();
+			};
+			const onError = () => {
+				sb.removeEventListener('error', onError);
+				reject(new Error('SourceBuffer error'));
+			};
+			sb.addEventListener('updateend', onEnd, { once: true });
+			sb.addEventListener('error', onError, { once: true });
+		});
+	}
+
+	async function appendChunk(sb: SourceBuffer, chunk: ArrayBuffer) {
+		if (sb.updating) {
+			await waitForUpdateEnd(sb);
+		}
+		sb.appendBuffer(chunk);
+		await waitForUpdateEnd(sb);
+	}
+
+	async function streamToBuffer(url: string, sb: SourceBuffer, signal: AbortSignal) {
+		const chunkSize = 2 * 1024 * 1024;
+		let position = 0;
+		let total = -1;
+
+		while (total < 0 || position < total) {
+			const end = total > 0 ? Math.min(total - 1, position + chunkSize - 1) : position + chunkSize - 1;
+			const res = await fetch(url, {
+				headers: { Range: `bytes=${position}-${end}` },
+				signal
+			});
+
+			if (res.status === 416) {
+				break;
+			}
+			if (!res.ok) {
+				throw new Error(`Stream fetch failed: ${res.status}`);
+			}
+
+			const contentRange = res.headers.get('content-range');
+			if (contentRange) {
+				const match = contentRange.match(/\/(\d+)$/);
+				if (match) {
+					total = parseInt(match[1], 10);
+				}
+			}
+
+			const buf = await res.arrayBuffer();
+			if (buf.byteLength === 0) {
+				break;
+			}
+
+			await appendChunk(sb, buf);
+			position += buf.byteLength;
+
+			if (!contentRange && buf.byteLength < chunkSize) {
+				break;
+			}
+		}
 	}
 
 	async function handleLoadStream() {
+		if (!useAdaptiveStreaming) {
+			return;
+		}
 		streamLoading = true;
 		streamError = null;
 
-		// Clean up existing dash player
-		destroyDashPlayer();
+		cleanupMediaSource();
 
 		try {
+			progressiveURL = `/api/stream/${videoId}?quality=${encodeURIComponent(selectedQuality)}&adaptive=0`;
 			const urls = await getStreamURLs(videoId, selectedQuality);
 			currentVideoURL = urls.videoURL;
 			currentAudioURL = urls.audioURL;
@@ -199,87 +313,75 @@
 				throw new Error('Video element not ready');
 			}
 
-			// Try DASH first for better buffering and adaptive streaming
-			if (urls.dashURL) {
-				try {
-					dashPlayer = dashjs.MediaPlayer().create();
-					dashPlayer.initialize(videoElement, urls.dashURL, false);
-
-					// Configure for better buffering
-					dashPlayer.updateSettings({
-						streaming: {
-							buffer: {
-								fastSwitchEnabled: true,
-								bufferPruningInterval: 30,
-								bufferToKeep: 30
-							}
-						}
-					});
-
-					usingDash = true;
-					console.log('Using DASH streaming');
-				} catch (dashError) {
-					console.warn('DASH init failed, falling back to direct URLs:', dashError);
-					destroyDashPlayer();
-				}
-			}
-
-			// Fallback to direct video+audio URLs if DASH not available
-			if (!usingDash) {
+			// If no separate audio stream, use direct progressive video URL
+			if (!currentAudioURL) {
 				videoElement.src = currentVideoURL;
 				videoElement.load();
-
-				if (audioElement && currentAudioURL) {
-					audioElement.src = currentAudioURL;
-					audioElement.load();
+				usingMSE = false;
+			} else {
+				if (!('MediaSource' in window)) {
+					videoElement.src = progressiveURL;
+					videoElement.load();
+					usingMSE = false;
+					return;
 				}
+
+				const [videoType, audioType] = await Promise.all([
+					getContentType(currentVideoURL),
+					getContentType(currentAudioURL)
+				]);
+
+				const videoMime = buildMimeType(videoType, 'video/mp4; codecs="avc1.640028"');
+				const audioMime = buildMimeType(audioType, 'audio/mp4; codecs="mp4a.40.2"');
+
+				if (!MediaSource.isTypeSupported(videoMime) || !MediaSource.isTypeSupported(audioMime)) {
+					videoElement.src = progressiveURL;
+					videoElement.load();
+					usingMSE = false;
+					return;
+				}
+
+				mediaSource = new MediaSource();
+				mediaObjectURL = URL.createObjectURL(mediaSource);
+				videoElement.src = mediaObjectURL;
+				videoElement.load();
+
+				await new Promise<void>((resolve) => {
+					mediaSource?.addEventListener('sourceopen', () => resolve(), { once: true });
+				});
+
+				if (!mediaSource) {
+					throw new Error('MediaSource not available');
+				}
+
+				const videoBuffer = mediaSource.addSourceBuffer(videoMime);
+				const audioBuffer = mediaSource.addSourceBuffer(audioMime);
+				videoAbort = new AbortController();
+				audioAbort = new AbortController();
+
+				usingMSE = true;
+				void Promise.all([
+					streamToBuffer(currentVideoURL, videoBuffer, videoAbort.signal),
+					streamToBuffer(currentAudioURL, audioBuffer, audioAbort.signal)
+				]).then(() => {
+					if (mediaSource?.readyState === 'open') {
+						mediaSource.endOfStream();
+					}
+				}).catch((err) => {
+					if (err instanceof DOMException && err.name === 'AbortError') {
+						return;
+					}
+					streamError = err instanceof Error ? err.message : 'Failed to load stream';
+				});
 			}
 		} catch (e) {
+			if (e instanceof DOMException && e.name === 'AbortError') {
+				return;
+			}
 			streamError = e instanceof Error ? e.message : 'Failed to load stream';
 			hasLoadedStream = false;
 		} finally {
 			streamLoading = false;
-		}
-	}
-
-	// Sync audio with video playback (only needed for non-DASH mode)
-	function syncAudioToVideo() {
-		if (usingDash) return; // DASH handles audio sync internally
-		if (!videoElement || !audioElement || !currentAudioURL) return;
-
-		// Sync time if drifted more than 0.3s
-		const drift = Math.abs(videoElement.currentTime - audioElement.currentTime);
-		if (drift > 0.3) {
-			audioElement.currentTime = videoElement.currentTime;
-		}
-	}
-
-	function handleVideoPlay() {
-		if (!usingDash && audioElement && currentAudioURL) {
-			audioElement.currentTime = videoElement?.currentTime || 0;
-			audioElement.play().catch(() => {});
-		}
-		isPlaying = true;
-	}
-
-	function handleVideoPause() {
-		if (!usingDash && audioElement && currentAudioURL) {
-			audioElement.pause();
-		}
-		isPlaying = false;
-		// Also save progress on pause
-		handlePause();
-	}
-
-	function handleVideoSeeked() {
-		if (!usingDash && audioElement && currentAudioURL && videoElement) {
-			audioElement.currentTime = videoElement.currentTime;
-		}
-	}
-
-	function handleVideoRateChange() {
-		if (!usingDash && audioElement && currentAudioURL && videoElement) {
-			audioElement.playbackRate = videoElement.playbackRate;
 		}
 	}
 
@@ -291,6 +393,27 @@
 		if (id === currentLoadingId) return;
 		currentLoadingId = id;
 		loadVideo(id);
+	});
+
+	$effect(() => {
+		if (loading || error) return;
+		if (!videoElement) return;
+
+		progressiveURL = `/api/stream/${videoId}?quality=${encodeURIComponent(selectedQuality)}&adaptive=0`;
+
+		if (useAdaptiveStreaming) {
+			const key = `${videoId}:${selectedQuality}`;
+			if (adaptiveLoadKey === key) return;
+			adaptiveLoadKey = key;
+			handleLoadStream();
+			return;
+		}
+
+		if (usingMSE) {
+			cleanupMediaSource();
+		}
+		videoElement.src = progressiveURL;
+		videoElement.load();
 	});
 
 	onMount(async () => {
@@ -312,12 +435,9 @@
 
 	onDestroy(() => {
 		saveProgress();
-		destroyDashPlayer();
+		cleanupMediaSource();
 		if (videoElement) {
 			videoElement.pause();
-		}
-		if (audioElement) {
-			audioElement.pause();
 		}
 	});
 
@@ -326,20 +446,10 @@
 			streamLoading = false;
 			// Apply saved playback speed
 			videoElement.playbackRate = playbackSpeed;
-			if (!usingDash && audioElement) {
-				audioElement.playbackRate = playbackSpeed;
-			}
 
 			// Resume from saved position if available
 			if (resumeFrom > 0) {
-				if (usingDash && dashPlayer) {
-					dashPlayer.seek(resumeFrom);
-				} else {
-					videoElement.currentTime = resumeFrom;
-					if (audioElement && currentAudioURL) {
-						audioElement.currentTime = resumeFrom;
-					}
-				}
+				videoElement.currentTime = resumeFrom;
 				lastSavedTime = resumeFrom;
 			}
 		}
@@ -349,6 +459,10 @@
 		if (!videoElement) return;
 		actualHeight = videoElement.videoHeight || 0;
 		actualWidth = videoElement.videoWidth || 0;
+		if (pendingSeekTime !== null) {
+			videoElement.currentTime = pendingSeekTime;
+			pendingSeekTime = null;
+		}
 	}
 
 	function saveProgress() {
@@ -372,6 +486,18 @@
 		const duration = Math.floor(videoElement.duration) || 0;
 		if (duration > 0) {
 			updateProgress(videoId, currentTime, duration).catch(() => {});
+		}
+	}
+
+	function handleSeeking() {
+		if (!videoElement) return;
+		if (usingMSE && progressiveURL) {
+			const seekTime = videoElement.currentTime;
+			cleanupMediaSource();
+			usingMSE = false;
+			pendingSeekTime = seekTime;
+			videoElement.src = progressiveURL;
+			videoElement.load();
 		}
 	}
 
@@ -456,23 +582,15 @@
 				preload="auto"
 				playsinline
 				poster={thumbnailURL || undefined}
+				src={useAdaptiveStreaming ? undefined : progressiveURL}
 				onloadedmetadata={handleLoadedMetadata}
 				onloadeddata={handleVideoLoaded}
-				ontimeupdate={() => { handleTimeUpdate(); syncAudioToVideo(); }}
-				onpause={handleVideoPause}
-				onplay={handleVideoPlay}
-				onseeked={handleVideoSeeked}
-				onratechange={handleVideoRateChange}
+				ontimeupdate={handleTimeUpdate}
+				onpause={handlePause}
+				onseeking={handleSeeking}
 			>
 				Your browser does not support the video tag.
 			</video>
-			<!-- Hidden audio element for dual-stream playback -->
-			<!-- svelte-ignore a11y_media_has_caption -->
-			<audio
-				bind:this={audioElement}
-				preload="auto"
-				class="hidden"
-			></audio>
 			{#if streamError}
 				<div class="absolute inset-0 flex items-center justify-center bg-gray-900/90">
 					<div class="text-center px-4">
@@ -496,6 +614,19 @@
 
 	{#if !loading && !error}
 		<div class="flex flex-wrap items-center gap-3 mb-4">
+			<details class="bg-gray-800/60 border border-gray-700 rounded px-3 py-2 text-sm">
+				<summary class="cursor-pointer text-gray-300 select-none">Settings</summary>
+				<div class="mt-2 flex items-center gap-2 text-gray-400">
+					<label class="flex items-center gap-2">
+						<input
+							type="checkbox"
+							bind:checked={useAdaptiveStreaming}
+							class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+						/>
+						Adaptive streaming (experimental)
+					</label>
+				</div>
+			</details>
 			<label class="text-sm text-gray-400">Quality</label>
 			<select
 				bind:value={selectedQuality}
@@ -503,9 +634,11 @@
 				disabled={streamLoading}
 			>
 				<option value="best">Best available</option>
-				<option value="4320">8K (4320p)</option>
-				<option value="2160">4K (2160p)</option>
-				<option value="1440">1440p</option>
+				{#if useAdaptiveStreaming}
+					<option value="4320">8K (4320p)</option>
+					<option value="2160">4K (2160p)</option>
+					<option value="1440">1440p</option>
+				{/if}
 				<option value="1080">1080p</option>
 				<option value="720">720p</option>
 				<option value="480">480p</option>
@@ -513,7 +646,7 @@
 			</select>
 			<button
 				onclick={handleLoadStream}
-				disabled={streamLoading}
+				disabled={streamLoading || !useAdaptiveStreaming}
 				class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm inline-flex items-center gap-2"
 			>
 				{#if streamLoading}
@@ -522,7 +655,7 @@
 						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 					</svg>
 				{/if}
-				{hasLoadedStream ? 'Change quality' : 'Load video'}
+				{hasLoadedStream ? 'Reload adaptive' : 'Load adaptive'}
 			</button>
 			{#if actualHeight > 0}
 				<span class="text-xs text-gray-500">
