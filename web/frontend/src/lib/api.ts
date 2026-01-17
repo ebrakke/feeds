@@ -246,3 +246,45 @@ export async function getSegments(videoId: string): Promise<{
 }> {
 	return fetchJSON(`/videos/${videoId}/segments`);
 }
+
+// Video Downloads
+export async function startDownload(videoId: string, quality: string): Promise<{
+	status: string;
+	quality: string;
+}> {
+	return fetchJSON(`/videos/${videoId}/download`, {
+		method: 'POST',
+		body: JSON.stringify({ quality })
+	});
+}
+
+export async function getQualities(videoId: string): Promise<{
+	available: string[];
+	cached: string[];
+	downloading: string | null;
+}> {
+	return fetchJSON(`/videos/${videoId}/qualities`);
+}
+
+export function subscribeToDownloadProgress(
+	videoId: string,
+	onProgress: (data: { quality: string; percent: number; status: string; error?: string }) => void
+): () => void {
+	const es = new EventSource(`/api/videos/${videoId}/download/status`);
+
+	es.addEventListener('progress', (e) => {
+		const data = JSON.parse(e.data);
+		onProgress(data);
+	});
+
+	es.addEventListener('status', (e) => {
+		const data = JSON.parse(e.data);
+		onProgress(data);
+	});
+
+	es.onerror = () => {
+		es.close();
+	};
+
+	return () => es.close();
+}
