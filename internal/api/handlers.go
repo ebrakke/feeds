@@ -22,13 +22,14 @@ import (
 )
 
 type Server struct {
-	db           *db.DB
-	ytdlp        *ytdlp.YTDLP
-	ai           *ai.Client
-	sponsorblock *sponsorblock.Client
-	templates    *template.Template
-	packs        fs.FS
-	videoCache   *VideoCache
+	db              *db.DB
+	ytdlp           *ytdlp.YTDLP
+	ai              *ai.Client
+	sponsorblock    *sponsorblock.Client
+	templates       *template.Template
+	packs           fs.FS
+	videoCache      *VideoCache
+	downloadManager *DownloadManager
 
 	// Stream URL cache (video ID -> cached entry)
 	streamCache   map[string]*streamCacheEntry
@@ -62,15 +63,18 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 		return nil, fmt.Errorf("failed to create Inbox: %w", err)
 	}
 
+	videoCache := NewVideoCache()
+
 	return &Server{
-		db:           database,
-		ytdlp:        yt,
-		ai:           aiClient,
-		sponsorblock: sponsorblock.NewClient(),
-		templates:    tmpl,
-		packs:        packsFS,
-		videoCache:   NewVideoCache(),
-		streamCache:  make(map[string]*streamCacheEntry),
+		db:              database,
+		ytdlp:           yt,
+		ai:              aiClient,
+		sponsorblock:    sponsorblock.NewClient(),
+		templates:       tmpl,
+		packs:           packsFS,
+		videoCache:      videoCache,
+		downloadManager: NewDownloadManager(videoCache, yt),
+		streamCache:     make(map[string]*streamCacheEntry),
 	}, nil
 }
 
