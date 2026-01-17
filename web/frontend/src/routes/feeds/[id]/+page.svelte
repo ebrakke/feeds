@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -42,7 +42,7 @@
 	let hasMore = $derived(videos.length < total);
 
 	let id = $derived(parseInt($page.params.id));
-	let scrollKey = $derived(`feed-${id}-scroll-position`);
+	let scrollRestoreKey = $derived(`feed-${id}-last-video`);
 	let allSelected = $derived(channels.length > 0 && selectedChannels.size === channels.length);
 
 	// Inbox-specific behavior
@@ -53,41 +53,6 @@
 
 	onMount(async () => {
 		await loadFeed();
-
-		// Restore scroll position after videos load
-		if (browser) {
-			const savedPosition = sessionStorage.getItem(scrollKey);
-			if (savedPosition) {
-				requestAnimationFrame(() => {
-					window.scrollTo(0, parseInt(savedPosition, 10));
-				});
-			}
-		}
-	});
-
-	// Save scroll position when navigating away
-	function saveScrollPosition() {
-		if (browser) {
-			sessionStorage.setItem(scrollKey, String(window.scrollY));
-		}
-	}
-
-	// Listen for navigation
-	if (browser) {
-		window.addEventListener('beforeunload', saveScrollPosition);
-		document.addEventListener('click', (e) => {
-			const target = e.target as HTMLElement;
-			if (target.closest('a')) {
-				saveScrollPosition();
-			}
-		});
-	}
-
-	onDestroy(() => {
-		if (browser) {
-			saveScrollPosition();
-			window.removeEventListener('beforeunload', saveScrollPosition);
-		}
 	});
 
 	async function loadFeed() {
@@ -203,7 +168,6 @@
 		deletingChannels = deletingChannels;
 		try {
 			await deleteChannel(channelId);
-			// Remove from local state instead of reloading
 			channels = channels.filter(c => c.id !== channelId);
 			videos = videos.filter(v => v.channel_id !== channelId);
 			selectedChannels.delete(channelId);
@@ -271,199 +235,253 @@
 </svelte:head>
 
 {#if loading}
-	<div class="flex justify-center py-12">
-		<svg class="animate-spin h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24">
-			<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-			<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-		</svg>
+	<div class="flex flex-col items-center justify-center py-20">
+		<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mb-4"></div>
+		<p class="text-text-muted font-display">Loading feed...</p>
 	</div>
 {:else if error}
-	<div class="text-center py-12">
-		<p class="text-red-400 mb-4">{error}</p>
-		<a href="/" class="text-blue-400 hover:underline">Go back home</a>
+	<div class="empty-state animate-fade-up" style="opacity: 0;">
+		<div class="w-16 h-16 mx-auto mb-4 rounded-full bg-crimson-500/10 flex items-center justify-center">
+			<svg class="w-8 h-8 text-crimson-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="12" cy="12" r="10"/>
+				<line x1="12" y1="8" x2="12" y2="12"/>
+				<line x1="12" y1="16" x2="12.01" y2="16"/>
+			</svg>
+		</div>
+		<p class="text-crimson-400 mb-4">{error}</p>
+		<a href="/" class="btn btn-secondary btn-sm">Go back home</a>
 	</div>
 {:else if feed}
-	<div class="mb-4 flex items-start justify-between gap-4">
-		<div>
-			<h1 class="text-2xl font-bold">{feed.name}</h1>
-			<p class="text-gray-400 text-sm">
-				{total.toLocaleString()} videos total
-				{#if watchedCount > 0}
-					&middot; {watchedCount.toLocaleString()} watched
-				{/if}
-				{#if videos.length < total}
-					&middot; {videos.length.toLocaleString()} loaded
-				{/if}
-			</p>
-		</div>
-		<div class="flex gap-2 flex-shrink-0 items-center">
-			<label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer mr-2">
-				<input
-					type="checkbox"
-					bind:checked={hideWatched}
-					class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-				/>
-				Hide watched
-			</label>
-			<button
-				onclick={handleRefresh}
-				disabled={refreshing}
-				class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm inline-flex items-center gap-1"
-			>
-				{#if refreshing}
-					<svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-					</svg>
-					{#if refreshProgress}
-						{refreshProgress.current}/{refreshProgress.total}
-					{:else}
-						Refreshing...
+	<!-- Header - mobile optimized with stacked layout -->
+	<header class="mb-4 sm:mb-6 animate-fade-up" style="opacity: 0;">
+		<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+			<div class="min-w-0">
+				<h1 class="text-xl sm:text-2xl font-display font-bold mb-1 truncate">{feed.name}</h1>
+				<p class="text-text-muted text-sm">
+					{total.toLocaleString()} videos
+					{#if watchedCount > 0}
+						<span class="text-text-dim mx-1">·</span>
+						{watchedCount.toLocaleString()} watched
 					{/if}
-				{:else}
-					Refresh
-				{/if}
-			</button>
-			{#if !isInbox}
-				<button
-					onclick={handleDelete}
-					class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm"
-				>
-					Delete
-				</button>
-			{/if}
-		</div>
-	</div>
-
-	<!-- Tabs -->
-	<div class="border-b border-gray-700 mb-4">
-		<nav class="flex gap-4">
-			<button
-				onclick={() => activeTab = 'videos'}
-				class="pb-2 px-1 text-sm font-medium border-b-2 transition-colors {activeTab === 'videos' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'}"
-			>
-				Videos ({displayRegularVideos.length}{hideWatched && regularVideos.length !== displayRegularVideos.length ? `/${regularVideos.length}` : ''})
-			</button>
-			{#if shortsVideos.length > 0}
-				<button
-					onclick={() => activeTab = 'shorts'}
-					class="pb-2 px-1 text-sm font-medium border-b-2 transition-colors {activeTab === 'shorts' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'}"
-				>
-					Shorts ({displayShortsVideos.length}{hideWatched && shortsVideos.length !== displayShortsVideos.length ? `/${shortsVideos.length}` : ''})
-				</button>
-			{/if}
-			<button
-				onclick={() => activeTab = 'channels'}
-				class="pb-2 px-1 text-sm font-medium border-b-2 transition-colors {activeTab === 'channels' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-400 hover:text-gray-300'}"
-			>
-				Channels ({channels.length})
-			</button>
-		</nav>
-	</div>
-
-	{#if refreshProgress}
-		<div class="mb-4 bg-gray-800 rounded-lg p-3">
-			<div class="flex justify-between text-sm text-gray-400 mb-1">
-				<span>Refreshing: {refreshProgress.channel}</span>
-				<span>{refreshProgress.current} / {refreshProgress.total}</span>
+					{#if videos.length < total}
+						<span class="text-text-dim mx-1">·</span>
+						{videos.length.toLocaleString()} loaded
+					{/if}
+				</p>
 			</div>
-			<div class="w-full bg-gray-700 rounded-full h-2">
+
+			<!-- Controls - responsive grid on mobile -->
+			<div class="flex flex-wrap items-center gap-2 sm:gap-2">
+				<!-- Hide Watched Toggle - touch-friendly -->
+				<label class="flex items-center gap-2.5 text-sm text-text-secondary cursor-pointer py-2 px-1 -ml-1 rounded-lg active:bg-elevated">
+					<input
+						type="checkbox"
+						bind:checked={hideWatched}
+						class="checkbox"
+					/>
+					<span class="select-none">Hide watched</span>
+				</label>
+
+				<div class="flex items-center gap-2">
+					<button
+						onclick={handleRefresh}
+						disabled={refreshing}
+						class="btn btn-primary btn-sm"
+					>
+						{#if refreshing}
+							<svg class="animate-spin h-4 w-4 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+							</svg>
+							{#if refreshProgress}
+								<span class="tabular-nums">{refreshProgress.current}/{refreshProgress.total}</span>
+							{:else}
+								<span class="hidden sm:inline">Refreshing</span>
+							{/if}
+						{:else}
+							<svg class="w-5 h-5 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M23 4v6h-6M1 20v-6h6"/>
+								<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+							</svg>
+							<span>Refresh</span>
+						{/if}
+					</button>
+
+					{#if !isInbox}
+						<button
+							onclick={handleDelete}
+							class="btn btn-danger btn-sm"
+						>
+							Delete
+						</button>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</header>
+
+	<!-- Tabs - horizontally scrollable on mobile -->
+	<nav class="flex gap-4 sm:gap-6 border-b border-border-subtle mb-4 sm:mb-6 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto scrollbar-none animate-fade-up stagger-1" style="opacity: 0;">
+		<button
+			onclick={() => activeTab = 'videos'}
+			class="tab {activeTab === 'videos' ? 'active' : ''}"
+		>
+			Videos
+			<span class="ml-1 text-text-dim">
+				({displayRegularVideos.length}{hideWatched && regularVideos.length !== displayRegularVideos.length ? `/${regularVideos.length}` : ''})
+			</span>
+		</button>
+		{#if shortsVideos.length > 0}
+			<button
+				onclick={() => activeTab = 'shorts'}
+				class="tab {activeTab === 'shorts' ? 'active' : ''}"
+			>
+				Shorts
+				<span class="ml-1 text-text-dim">
+					({displayShortsVideos.length}{hideWatched && shortsVideos.length !== displayShortsVideos.length ? `/${shortsVideos.length}` : ''})
+				</span>
+			</button>
+		{/if}
+		<button
+			onclick={() => activeTab = 'channels'}
+			class="tab {activeTab === 'channels' ? 'active' : ''}"
+		>
+			Channels
+			<span class="ml-1 text-text-dim">({channels.length})</span>
+		</button>
+	</nav>
+
+	<!-- Refresh Progress -->
+	{#if refreshProgress}
+		<div class="card-elevated p-4 mb-6 animate-fade-in">
+			<div class="flex justify-between text-sm mb-2">
+				<span class="text-text-secondary truncate">{refreshProgress.channel}</span>
+				<span class="text-text-muted">{refreshProgress.current} / {refreshProgress.total}</span>
+			</div>
+			<div class="progress-bar">
 				<div
-					class="bg-blue-500 h-2 rounded-full transition-all duration-200"
+					class="progress-bar-fill"
 					style="width: {(refreshProgress.current / refreshProgress.total) * 100}%"
 				></div>
 			</div>
 		</div>
 	{/if}
 
-	{#if activeTab === 'videos'}
-		{#if isInbox && videos.length === 0 && channels.length === 0}
-			<div class="text-center py-12 text-gray-400">
-				<p class="mb-2">Your inbox is empty!</p>
-				<p class="text-sm">New channels you subscribe to will appear here for triage.</p>
-			</div>
-		{:else}
+	<!-- Tab Content -->
+	<div class="animate-fade-up stagger-2" style="opacity: 0;">
+		{#if activeTab === 'videos'}
+			{#if isInbox && videos.length === 0 && channels.length === 0}
+				<div class="empty-state">
+					<div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-amber-500/10 flex items-center justify-center">
+						<svg class="w-8 h-8 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+							<polyline points="22,12 16,12 14,15 10,15 8,12 2,12"/>
+							<path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+						</svg>
+					</div>
+					<h3 class="empty-state-title">Your inbox is empty</h3>
+					<p class="empty-state-text">New channels you subscribe to will appear here for triage</p>
+				</div>
+			{:else}
+				<VideoGrid
+					videos={displayRegularVideos}
+					{progressMap}
+					showMoveAction={isInbox}
+					showRemoveAction={!isInbox}
+					availableFeeds={moveTargetFeeds}
+					onChannelMoved={loadFeed}
+					onChannelRemoved={loadFeed}
+					{scrollRestoreKey}
+				/>
+			{/if}
+		{:else if activeTab === 'shorts'}
 			<VideoGrid
-				videos={displayRegularVideos}
+				videos={displayShortsVideos}
 				{progressMap}
 				showMoveAction={isInbox}
+				showRemoveAction={!isInbox}
 				availableFeeds={moveTargetFeeds}
 				onChannelMoved={loadFeed}
+				onChannelRemoved={loadFeed}
+				scrollRestoreKey={`${scrollRestoreKey}-shorts`}
 			/>
-		{/if}
-	{:else if activeTab === 'shorts'}
-		<VideoGrid
-			videos={displayShortsVideos}
-			{progressMap}
-			showMoveAction={isInbox}
-			availableFeeds={moveTargetFeeds}
-			onChannelMoved={loadFeed}
-		/>
-	{:else if activeTab === 'channels'}
-		<div class="space-y-2">
+		{:else if activeTab === 'channels'}
 			{#if channels.length > 0}
+				<!-- Bulk Actions -->
 				<div class="flex items-center justify-between mb-4">
 					<label class="flex items-center gap-3 cursor-pointer">
 						<input
 							type="checkbox"
 							checked={allSelected}
 							onchange={toggleAllChannels}
-							class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+							class="checkbox"
 						/>
-						<span class="text-gray-400 text-sm">Select all</span>
+						<span class="text-sm text-text-secondary">Select all</span>
 					</label>
 					{#if selectedChannels.size > 0}
 						<button
 							onclick={handleDeleteSelected}
-							class="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm"
+							class="btn btn-danger btn-sm"
 						>
 							Remove {selectedChannels.size} selected
 						</button>
 					{/if}
 				</div>
-				{#each channels as channel}
-					<div class="flex items-center gap-3 bg-gray-800 hover:bg-gray-750 rounded-lg px-4 py-3 {deletingChannels.has(channel.id) ? 'opacity-50' : ''}">
-						<input
-							type="checkbox"
-							checked={selectedChannels.has(channel.id)}
-							onchange={() => toggleChannel(channel.id)}
-							disabled={deletingChannels.has(channel.id)}
-							class="w-4 h-4 rounded border-gray-500 bg-gray-600 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-						/>
-						<a href="/channels/{channel.id}" class="hover:text-blue-400 flex-1">
-							{channel.name}
-						</a>
-						<button
-							onclick={() => handleDeleteChannel(channel.id, channel.name)}
-							disabled={deletingChannels.has(channel.id)}
-							class="text-red-400 hover:text-red-300 text-sm disabled:opacity-50"
+
+				<!-- Channel List -->
+				<div class="space-y-2">
+					{#each channels as channel, i}
+						<div
+							class="channel-item {deletingChannels.has(channel.id) ? 'opacity-50' : ''} animate-fade-up"
+							style="opacity: 0; animation-delay: {Math.min(i * 0.03, 0.3)}s;"
 						>
-							{deletingChannels.has(channel.id) ? 'Removing...' : 'Remove'}
-						</button>
-					</div>
-				{/each}
+							<input
+								type="checkbox"
+								checked={selectedChannels.has(channel.id)}
+								onchange={() => toggleChannel(channel.id)}
+								disabled={deletingChannels.has(channel.id)}
+								class="checkbox"
+							/>
+							<a href="/channels/{channel.id}" class="flex-1 hover:text-amber-400 transition-colors truncate">
+								{channel.name}
+							</a>
+							<button
+								onclick={() => handleDeleteChannel(channel.id, channel.name)}
+								disabled={deletingChannels.has(channel.id)}
+								class="text-sm text-text-muted hover:text-crimson-400 transition-colors disabled:opacity-50"
+							>
+								{deletingChannels.has(channel.id) ? 'Removing...' : 'Remove'}
+							</button>
+						</div>
+					{/each}
+				</div>
 			{:else}
-				<div class="text-center py-12 text-gray-400">
-					<p>No channels in this feed yet.</p>
+				<div class="empty-state">
+					<div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface flex items-center justify-center">
+						<svg class="w-8 h-8 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+							<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+							<circle cx="9" cy="7" r="4"/>
+							<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+							<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+						</svg>
+					</div>
+					<h3 class="empty-state-title">No channels yet</h3>
+					<p class="empty-state-text">Add channels to this feed to see their videos</p>
 				</div>
 			{/if}
-		</div>
-	{/if}
+		{/if}
+	</div>
 
-	<!-- Load more indicator -->
+	<!-- Load More -->
 	{#if activeTab !== 'channels'}
 		{#if loadingMore}
 			<div class="flex justify-center py-8">
-				<svg class="animate-spin h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24">
-					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-				</svg>
+				<div class="w-8 h-8 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin"></div>
 			</div>
 		{:else if hasMore}
 			<div class="flex justify-center py-8">
 				<button
 					onclick={loadMore}
-					class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm"
+					class="btn btn-secondary"
 				>
 					Load more ({total - videos.length} remaining)
 				</button>
