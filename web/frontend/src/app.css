@@ -1440,3 +1440,59 @@ a {
   font-size: 0.75rem;
   color: var(--color-amber-500);
 }
+
+/* ============================================
+   DOWNLOAD PROGRESS OVERLAY
+   ============================================ */
+
+.download-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+  padding: 1rem;
+  pointer-events: none;
+}
+
+.download-overlay-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: white;
+}
+
+.download-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.download-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.download-progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.download-progress-fill {
+  height: 100%;
+  background: var(--color-amber-500);
+  transition: width 0.3s ease;
+}
+
+.download-percent {
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-width: 3rem;
+  text-align: right;
+}

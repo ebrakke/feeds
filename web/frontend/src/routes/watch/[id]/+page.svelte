@@ -501,6 +501,20 @@
 						Your browser does not support the video tag.
 					</video>
 
+					<!-- Download Progress Overlay -->
+					{#if downloadingQuality}
+						<div class="download-overlay">
+							<div class="download-overlay-content">
+								<div class="download-spinner"></div>
+								<span class="download-text">Downloading {downloadingQuality}p...</span>
+								<div class="download-progress-bar">
+									<div class="download-progress-fill" style="width: {downloadProgress}%"></div>
+								</div>
+								<span class="download-percent">{Math.round(downloadProgress)}%</span>
+							</div>
+						</div>
+					{/if}
+
 					<!-- Skip Notice -->
 					{#if showSkipNotice}
 						<div class="skip-notice">
