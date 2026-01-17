@@ -543,7 +543,9 @@
 	{/if}
 </svelte:head>
 
-<div class="max-w-4xl mx-auto">
+<div class="max-w-6xl mx-auto">
+	<div class="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-6">
+		<div class="min-w-0">
 	<!-- Video container -->
 	<div class="aspect-video bg-black rounded-lg overflow-hidden mb-4 relative">
 		{#if loading}
@@ -777,9 +779,11 @@
 		Watch on YouTube
 	</a>
 
+		</div>
+
 	<!-- Up Next / Nearby Videos -->
 	{#if nearbyVideos.length > 0}
-		<div class="mt-8">
+		<div class="mt-8 lg:hidden">
 			<div class="flex items-center justify-between mb-3">
 				<h2 class="text-lg font-semibold">Up Next</h2>
 				{#if nearbyFeedId > 0}
@@ -788,7 +792,7 @@
 					</a>
 				{/if}
 			</div>
-			<div class="max-h-[600px] overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+			<div class="space-y-3">
 				{#each nearbyVideos as video}
 					<a
 						href="/watch/{video.id}"
@@ -834,5 +838,62 @@
 				{/each}
 			</div>
 		</div>
+
+		<aside class="hidden lg:block lg:sticky lg:top-24 lg:h-[calc(100vh-7rem)]">
+			<div class="flex items-center justify-between mb-3">
+				<h2 class="text-lg font-semibold">Up Next</h2>
+				{#if nearbyFeedId > 0}
+					<a href="/feeds/{nearbyFeedId}" class="text-sm text-blue-400 hover:text-blue-300">
+						View Feed
+					</a>
+				{/if}
+			</div>
+			<div class="h-full overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+				{#each nearbyVideos as video}
+					<a
+						href="/watch/{video.id}"
+						class="flex gap-3 group"
+					>
+						<div class="relative flex-shrink-0 w-40 aspect-video bg-gray-800 rounded-lg overflow-hidden">
+							{#if video.thumbnail}
+								<img
+									src={video.thumbnail}
+									alt=""
+									class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+								/>
+							{:else}
+								<div class="w-full h-full flex items-center justify-center text-gray-600">
+									<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+									</svg>
+								</div>
+							{/if}
+							<!-- Duration badge -->
+							{#if video.duration > 0}
+								<span class="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
+									{formatDuration(video.duration)}
+								</span>
+							{/if}
+							<!-- Watch progress bar -->
+							{#if getWatchedPercent(video) > 0}
+								<div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-900/50">
+									<div
+										class="h-full bg-red-600"
+										style="width: {getWatchedPercent(video)}%"
+									></div>
+								</div>
+							{/if}
+						</div>
+						<div class="flex-1 min-w-0">
+							<h3 class="text-sm font-medium line-clamp-2 group-hover:text-blue-400 transition-colors">
+								{video.title}
+							</h3>
+							<p class="text-xs text-gray-500 mt-1">{video.channel_name}</p>
+						</div>
+					</a>
+				{/each}
+			</div>
+		</aside>
 	{/if}
+	</div>
 </div>
