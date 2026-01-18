@@ -1384,61 +1384,104 @@ a {
 }
 
 /* ============================================
-   QUALITY SELECTOR
+   NOW PLAYING BADGE
    ============================================ */
 
-.quality-selector {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.now-playing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  background: var(--color-emerald-500);
+  color: var(--color-void);
 }
 
-.quality-btn {
-  padding: 0.375rem 0.75rem;
+/* ============================================
+   DOWNLOAD HD ROW
+   ============================================ */
+
+.download-hd-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.download-hd-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.download-hd-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.download-hd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
   border-radius: 0.375rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   background: var(--color-surface);
   color: var(--color-text-secondary);
   border: 1px solid var(--color-border);
   cursor: pointer;
   transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
 }
 
-.quality-btn:hover:not(:disabled) {
+.download-hd-btn:hover:not(:disabled) {
   background: var(--color-elevated);
   color: var(--color-text-primary);
+  border-color: var(--color-text-dim);
 }
 
-.quality-btn.active {
+.download-hd-btn.cached {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.download-hd-btn.cached:hover:not(:disabled) {
+  background: var(--color-success);
+  color: var(--color-void);
+  border-color: var(--color-success);
+}
+
+.download-hd-btn.active {
   background: var(--color-emerald-500);
   color: var(--color-void);
   border-color: var(--color-emerald-500);
 }
 
-.quality-btn.cached {
-  border-color: var(--color-success);
-}
-
-.quality-btn.downloading {
+.download-hd-btn.downloading {
   background: var(--color-elevated);
+  border-color: var(--color-emerald-500);
+  color: var(--color-emerald-400);
 }
 
-.quality-btn:disabled {
-  opacity: 0.5;
+.download-hd-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.quality-badge {
-  font-size: 0.75rem;
-  color: var(--color-success);
+.download-hd-progress {
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5rem;
+  text-align: center;
 }
 
-.quality-progress {
+.download-hd-error {
   font-size: 0.75rem;
-  color: var(--color-emerald-500);
+  color: var(--color-crimson-400);
 }
 
 /* ============================================

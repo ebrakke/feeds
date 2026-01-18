@@ -571,42 +571,21 @@
 							</select>
 						</div>
 
-						<!-- Quality Selector -->
-						<div class="control-group">
-							<label class="control-label">Quality</label>
-							<div class="quality-selector">
-								<button
-									class="quality-btn"
-									class:active={selectedQuality === 'auto'}
-									onclick={() => handleQualitySelect('auto')}
-								>
-									Auto
-								</button>
-								{#each availableQualities as q}
-									<button
-										class="quality-btn"
-										class:active={selectedQuality === q}
-										class:cached={cachedQualities.includes(q)}
-										class:downloading={downloadingQuality === q}
-										onclick={() => handleQualitySelect(q)}
-										disabled={downloadingQuality !== null && downloadingQuality !== q}
-									>
-										{q}p
-										{#if cachedQualities.includes(q)}
-											<span class="quality-badge">✓</span>
-										{:else if downloadingQuality === q}
-											<span class="quality-progress">{Math.round(downloadProgress)}%</span>
-										{/if}
-									</button>
-								{/each}
-							</div>
-							{#if downloadError}
-								<p class="text-red-500 text-sm mt-1">{downloadError}</p>
-							{/if}
-						</div>
-
+						<!-- Now Playing Badge -->
 						{#if actualHeight > 0}
-							<span class="resolution-badge">{actualWidth}×{actualHeight}</span>
+							<div class="now-playing-badge">
+								<svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+									<path d="M8 5v14l11-7z"/>
+								</svg>
+								<span>{actualHeight}p</span>
+							</div>
+						{:else if !loading}
+							<div class="now-playing-badge">
+								<svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+									<path d="M8 5v14l11-7z"/>
+								</svg>
+								<span>Auto</span>
+							</div>
 						{/if}
 
 						{#if segments.length > 0}
@@ -646,6 +625,49 @@
 							</label>
 						</div>
 					</details>
+
+					<!-- Download HD Row -->
+					{#if availableQualities.length > 0}
+						<div class="download-hd-row">
+							<span class="download-hd-label">Download HD</span>
+							<div class="download-hd-buttons">
+								{#each availableQualities as q}
+									{@const isCached = cachedQualities.includes(q)}
+									{@const isDownloading = downloadingQuality === q}
+									{@const isActive = selectedQuality === q && isCached}
+									{@const qNum = parseInt(q)}
+									{#if isCached || qNum > actualHeight || actualHeight === 0}
+										<button
+											class="download-hd-btn"
+											class:cached={isCached}
+											class:active={isActive}
+											class:downloading={isDownloading}
+											onclick={() => handleQualitySelect(q)}
+											disabled={downloadingQuality !== null && !isDownloading && !isCached}
+										>
+											{#if isDownloading}
+												<span class="download-hd-progress">{Math.round(downloadProgress)}%</span>
+											{:else if isCached}
+												<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+													<path d="M20 6L9 17l-5-5"/>
+												</svg>
+											{:else}
+												<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+													<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+													<polyline points="7,10 12,15 17,10"/>
+													<line x1="12" y1="15" x2="12" y2="3"/>
+												</svg>
+											{/if}
+											<span>{q}p</span>
+										</button>
+									{/if}
+								{/each}
+							</div>
+							{#if downloadError}
+								<span class="download-hd-error">{downloadError}</span>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/if}
 
