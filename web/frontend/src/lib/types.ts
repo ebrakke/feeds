@@ -31,6 +31,7 @@ export interface Video {
 	duration: number;
 	published: string;
 	url: string;
+	is_short: boolean | null;
 }
 
 export interface WatchProgress {

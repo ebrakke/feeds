@@ -24,9 +24,13 @@
 	let total = $state(0);
 	let hideWatched = $state(false);
 
-	// Filter shorts (videos under 90 seconds with known duration)
-	let shortsVideos = $derived(videos.filter(v => v.duration > 0 && v.duration < 90));
-	let regularVideos = $derived(videos.filter(v => v.duration === 0 || v.duration >= 90));
+	// Filter shorts - use is_short flag if available, fall back to duration heuristic
+	let shortsVideos = $derived(videos.filter(v =>
+		v.is_short === true || (v.is_short === null && v.duration > 0 && v.duration < 90)
+	));
+	let regularVideos = $derived(videos.filter(v =>
+		v.is_short === false || (v.is_short === null && (v.duration === 0 || v.duration >= 90))
+	));
 	let deletingChannels = $state<Set<number>>(new Set());
 
 	// Filter by watched status
