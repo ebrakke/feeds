@@ -568,6 +568,10 @@ func (s *Server) handleRefreshFeed(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 	log.Printf("Refresh complete: %d total videos saved", totalVideos)
 
+	// Fetch durations and shorts status in background
+	go s.fetchMissingDurations(feedID)
+	go s.fetchMissingShortsStatus(feedID)
+
 	// Redirect back to feed page
 	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10), http.StatusSeeOther)
 }
