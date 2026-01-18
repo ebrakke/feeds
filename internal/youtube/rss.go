@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/erik/feeds/internal/models"
@@ -254,4 +255,49 @@ func IsShort(videoID string) bool {
 
 	// If we get 200, it's a short. If redirect (to /watch), it's not a short.
 	return resp.StatusCode == 200
+}
+
+// CheckShortsStatus checks multiple video IDs and returns a map of videoID -> isShort
+// Uses concurrent requests with a limit to avoid overwhelming the server
+func CheckShortsStatus(videoIDs []string) map[string]bool {
+	results := make(map[string]bool)
+	if len(videoIDs) == 0 {
+		return results
+	}
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Limit concurrent requests to 5 to avoid overwhelming YouTube's servers
+	sem := make(chan struct{}, 5)
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	for _, videoID := range videoIDs {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			shortsURL := fmt.Sprintf("https://www.youtube.com/shorts/%s", id)
+			resp, err := client.Head(shortsURL)
+			if err != nil {
+				return // Skip on error, will retry later
+			}
+			defer resp.Body.Close()
+
+			mu.Lock()
+			results[id] = (resp.StatusCode == 200)
+			mu.Unlock()
+		}(videoID)
+	}
+
+	wg.Wait()
+	return results
 }
