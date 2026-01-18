@@ -824,14 +824,28 @@
 				<div class="mt-8 lg:hidden">
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
-						{#if nearbyFeedId > 0}
-							<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
-								View Feed
-							</a>
-						{/if}
+						<div class="flex items-center gap-3">
+							{#if upNextFocusMode}
+								<button
+									onclick={exitFocusMode}
+									class="text-sm text-text-muted hover:text-white transition-colors"
+								>
+									Collapse
+								</button>
+							{/if}
+							{#if nearbyFeedId > 0}
+								<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+									View Feed
+								</a>
+							{/if}
+						</div>
 					</div>
-					<div class="space-y-3">
-						{#each nearbyVideos.slice(0, 6) as video}
+					<div
+						class="space-y-3 mobile-up-next-list"
+						class:mobile-up-next-expanded={upNextFocusMode}
+						onscroll={handleUpNextScroll}
+					>
+						{#each upNextFocusMode ? nearbyVideos : nearbyVideos.slice(0, 6) as video}
 							<a href="/watch/{video.id}" class="up-next-item group">
 								<div class="video-thumbnail w-36 flex-shrink-0">
 									{#if video.thumbnail}
@@ -854,7 +868,23 @@
 								</div>
 							</a>
 						{/each}
+						{#if upNextLoading}
+							<div class="flex justify-center py-4">
+								<div class="animate-spin rounded-full h-6 w-6 border-2 border-emerald-500 border-t-transparent"></div>
+							</div>
+						{/if}
+						{#if upNextFocusMode && !upNextHasMore && nearbyVideos.length > 0}
+							<p class="text-center text-text-muted text-sm py-4">No more videos</p>
+						{/if}
 					</div>
+					{#if !upNextFocusMode && nearbyVideos.length > 6}
+						<button
+							onclick={() => upNextFocusMode = true}
+							class="mt-4 w-full py-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
+						>
+							Show more ({nearbyVideos.length - 6}+ videos)
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>
