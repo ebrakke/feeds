@@ -387,10 +387,13 @@
 					unsubscribeProgress();
 				}
 				unsubscribeProgress = subscribeToDownloadProgress(videoId, (data) => {
+					console.log('Download progress:', data);
 					if (data.status === 'complete') {
 						cachedQualities = [...cachedQualities, data.quality];
 						downloadingQuality = null;
 						downloadProgress = 0;
+						// Switch to the downloaded quality
+						selectedQuality = data.quality;
 						if (unsubscribeProgress) {
 							unsubscribeProgress();
 							unsubscribeProgress = null;

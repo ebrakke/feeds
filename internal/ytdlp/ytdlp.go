@@ -1,9 +1,11 @@
 package ytdlp
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -394,6 +396,177 @@ func (y *YTDLP) GetVideoDurations(videoIDs []string) (map[string]int, error) {
 	}
 
 	return durations, nil
+}
+
+// DownloadVideo downloads a video to the specified path using yt-dlp's native downloader.
+// This is much faster than using GetAdaptiveStreamURLs + HTTP download because yt-dlp
+// handles YouTube's throttling, uses multiple connections, and has proper retry logic.
+// Returns the final file size.
+func (y *YTDLP) DownloadVideo(videoURL string, quality string, outputPath string) (int64, error) {
+	format := formatForQuality(quality, true)
+
+	args := []string{
+		"--force-ipv4",
+		"--format", format,
+		"--merge-output-format", "mp4",
+		"--output", outputPath,
+		"--no-playlist",
+		"--no-warnings",
+		"--newline", // Progress on separate lines
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+
+	cmd := exec.Command(y.BinPath, args...)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("yt-dlp download error: %v, stderr: %s", err, stderr.String())
+	}
+
+	// Get the final file size
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to stat output file: %v", err)
+	}
+
+	return info.Size(), nil
+}
+
+// DownloadVideoWithProgress downloads a video and reports progress via callback.
+// The callback receives (downloaded bytes, total bytes, percent).
+// For adaptive streams, video+audio are downloaded separately and then merged.
+// Progress is mapped: video=0-80%, audio=80-95%, merging=95-100%
+// outputPath should be the desired final path (e.g., "/tmp/video.mp4")
+func (y *YTDLP) DownloadVideoWithProgress(videoURL string, quality string, outputPath string, progressFn func(downloaded, total int64, percent float64)) (int64, error) {
+	format := formatForQuality(quality, true)
+
+	// yt-dlp adds extension based on merge format, so we strip .mp4 if present
+	outputTemplate := strings.TrimSuffix(outputPath, ".mp4")
+
+	args := []string{
+		"--force-ipv4",
+		"--format", format,
+		"--merge-output-format", "mp4",
+		"--output", outputTemplate + ".%(ext)s",
+		"--no-playlist",
+		"--no-warnings",
+		"--newline", // Progress on separate lines
+		"--progress-template", "%(progress._percent_str)s %(progress._total_bytes_str)s %(progress._downloaded_bytes_str)s",
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videoURL)
+
+	cmd := exec.Command(y.BinPath, args...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return 0, err
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return 0, fmt.Errorf("failed to start yt-dlp: %v", err)
+	}
+
+	// Track which download phase we're in (video=0, audio=1)
+	// Video download maps to 0-80%, audio to 80-95%
+	downloadPhase := 0
+	var lastTotal int64
+
+	// Read progress output line by line using bufio.Scanner for proper buffering
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		// Parse progress lines - format is "  0.0%    3.17MiB    1.00KiB" with variable whitespace
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && strings.HasSuffix(fields[0], "%") {
+			// First field is percent like "50.5%"
+			percentStr := strings.TrimSuffix(fields[0], "%")
+			var rawPercent float64
+			if _, err := fmt.Sscanf(percentStr, "%f", &rawPercent); err == nil {
+				total := parseSize(fields[1])
+				downloaded := parseSize(fields[2])
+
+				// Detect phase change: when total changes significantly or percent resets from 100 to 0
+				if lastTotal > 0 && total > 0 && total != lastTotal && downloadPhase == 0 {
+					downloadPhase = 1
+				}
+				lastTotal = total
+
+				// Map raw percent to overall progress
+				// Video (phase 0): 0-80%, Audio (phase 1): 80-95%
+				var mappedPercent float64
+				switch downloadPhase {
+				case 0: // Video download
+					mappedPercent = rawPercent * 0.80
+				case 1: // Audio download
+					mappedPercent = 80.0 + (rawPercent * 0.15)
+				}
+
+				log.Printf("yt-dlp progress (phase %d): raw=%.1f%% mapped=%.1f%% (%d / %d bytes)", downloadPhase, rawPercent, mappedPercent, downloaded, total)
+				if progressFn != nil {
+					progressFn(downloaded, total, mappedPercent)
+				}
+			}
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return 0, fmt.Errorf("yt-dlp download error: %v, stderr: %s", err, stderr.String())
+	}
+
+	// The actual output file will be outputTemplate + ".mp4"
+	actualOutput := outputTemplate + ".mp4"
+
+	// Rename to the requested path if different
+	if actualOutput != outputPath {
+		if err := os.Rename(actualOutput, outputPath); err != nil {
+			return 0, fmt.Errorf("failed to rename output file: %v", err)
+		}
+	}
+
+	// Get the final file size
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to stat output file: %v", err)
+	}
+
+	return info.Size(), nil
+}
+
+// parseSize parses size strings like "10.5MiB", "1.2GiB", "500KiB"
+func parseSize(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "N/A" {
+		return 0
+	}
+
+	var value float64
+	var unit string
+	if _, err := fmt.Sscanf(s, "%f%s", &value, &unit); err != nil {
+		return 0
+	}
+
+	multiplier := int64(1)
+	switch strings.ToLower(unit) {
+	case "kib", "kb":
+		multiplier = 1024
+	case "mib", "mb":
+		multiplier = 1024 * 1024
+	case "gib", "gb":
+		multiplier = 1024 * 1024 * 1024
+	}
+
+	return int64(value * float64(multiplier))
 }
 
 // ToModel converts VideoInfo to our Video model

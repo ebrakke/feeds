@@ -2,12 +2,8 @@ package api
 
 import (
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -160,10 +156,6 @@ func (dm *DownloadManager) broadcast(videoID string, progress DownloadProgress) 
 }
 
 func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
-	// Use a done channel to signal completion to the progress monitor
-	done := make(chan struct{})
-	defer close(done)
-
 	defer func() {
 		dm.mu.Lock()
 		delete(dm.active, key)
@@ -171,151 +163,46 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	}()
 
 	videoURL := "https://www.youtube.com/watch?v=" + videoID
-
-	log.Printf("Starting download for %s quality %s", videoID, quality)
-
-	// Get adaptive stream URLs
-	videoStreamURL, audioStreamURL, err := dm.ytdlp.GetAdaptiveStreamURLs(videoURL, quality)
-	if err != nil {
-		dm.setError(key, videoID, quality, fmt.Sprintf("Failed to get stream URLs: %v", err))
-		return
-	}
-
-	if audioStreamURL == "" {
-		dm.setError(key, videoID, quality, "No separate audio stream available for this quality")
-		return
-	}
-
-	log.Printf("Got stream URLs for %s, starting downloads", videoID)
-
-	// Create temp directory for this download
-	tempDir := filepath.Join(os.TempDir(), "feeds-download-"+videoID+"-"+quality)
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		dm.setError(key, videoID, quality, fmt.Sprintf("Failed to create temp dir: %v", err))
-		return
-	}
-	defer os.RemoveAll(tempDir)
-
-	videoPath := filepath.Join(tempDir, "video.mp4")
-	audioPath := filepath.Join(tempDir, "audio.m4a")
-
-	// Download video and audio in parallel
-	var wg sync.WaitGroup
-	var videoErr, audioErr error
-	var videoSize, audioSize int64
-
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		videoSize, videoErr = dm.downloadFile(videoStreamURL, videoPath)
-		log.Printf("Video download finished for %s: %d bytes, err=%v", videoID, videoSize, videoErr)
-	}()
-
-	go func() {
-		defer wg.Done()
-		audioSize, audioErr = dm.downloadFile(audioStreamURL, audioPath)
-		log.Printf("Audio download finished for %s: %d bytes, err=%v", videoID, audioSize, audioErr)
-	}()
-
-	// Monitor progress while downloading
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				dm.mu.RLock()
-				d, exists := dm.active[key]
-				dm.mu.RUnlock()
-				if !exists {
-					return
-				}
-
-				var downloaded int64
-				if info, err := os.Stat(videoPath); err == nil {
-					downloaded += info.Size()
-				}
-				if info, err := os.Stat(audioPath); err == nil {
-					downloaded += info.Size()
-				}
-
-				// Update with rough progress - estimate ~15MB total for a typical video
-				estimatedTotal := int64(15 * 1024 * 1024)
-				percent := float64(downloaded) / float64(estimatedTotal) * 100
-				if percent > 95 {
-					percent = 95 // Cap at 95% until muxing is done
-				}
-
-				progress := DownloadProgress{
-					Quality:         quality,
-					Percent:         percent,
-					BytesDownloaded: downloaded,
-					Status:          d.Status,
-				}
-				dm.broadcast(videoID, progress)
-			}
-		}
-	}()
-
-	wg.Wait()
-
-	if videoErr != nil {
-		dm.setError(key, videoID, quality, fmt.Sprintf("Video download failed: %v", videoErr))
-		return
-	}
-	if audioErr != nil {
-		dm.setError(key, videoID, quality, fmt.Sprintf("Audio download failed: %v", audioErr))
-		return
-	}
-
-	// Update status to muxing
-	dm.mu.Lock()
-	if d, exists := dm.active[key]; exists {
-		d.Status = "muxing"
-	}
-	dm.mu.Unlock()
-
-	log.Printf("Downloads complete for %s, starting mux (%d + %d bytes)", videoID, videoSize, audioSize)
-
-	dm.broadcast(videoID, DownloadProgress{
-		Quality:         quality,
-		Percent:         95,
-		BytesDownloaded: videoSize + audioSize,
-		TotalBytes:      videoSize + audioSize,
-		Status:          "muxing",
-	})
-
-	// Mux with ffmpeg
 	outputPath := dm.cache.CachePath(cacheKey)
 	tempOutput := outputPath + ".tmp"
 
-	cmd := exec.Command(
-		"ffmpeg",
-		"-y",
-		"-i", videoPath,
-		"-i", audioPath,
-		"-c", "copy",
-		"-movflags", "+faststart",
-		"-f", "mp4",
-		tempOutput,
-	)
+	log.Printf("Starting yt-dlp download for %s quality %s", videoID, quality)
 
-	if err := cmd.Run(); err != nil {
-		dm.setError(key, videoID, quality, fmt.Sprintf("Muxing failed: %v", err))
+	// Use yt-dlp's native downloader with progress callback
+	// This is MUCH faster than HTTP download (~20 MB/s vs ~100 KB/s)
+	// Progress is mapped in ytdlp: video=0-80%, audio=80-95%, complete=100%
+	var lastBroadcast time.Time
+	size, err := dm.ytdlp.DownloadVideoWithProgress(videoURL, quality, tempOutput, func(downloaded, total int64, percent float64) {
+		// Throttle broadcasts to every 250ms for smoother progress
+		if time.Since(lastBroadcast) < 250*time.Millisecond {
+			return
+		}
+		lastBroadcast = time.Now()
+
+		dm.broadcast(videoID, DownloadProgress{
+			Quality:         quality,
+			Percent:         percent,
+			BytesDownloaded: downloaded,
+			TotalBytes:      total,
+			Status:          "downloading",
+		})
+	})
+
+	if err != nil {
+		// Clean up temp file on error
+		os.Remove(tempOutput)
+		dm.setError(key, videoID, quality, fmt.Sprintf("Download failed: %v", err))
 		return
 	}
 
 	// Move to final location
 	if err := os.Rename(tempOutput, outputPath); err != nil {
+		os.Remove(tempOutput)
 		dm.setError(key, videoID, quality, fmt.Sprintf("Failed to save file: %v", err))
 		return
 	}
 
-	log.Printf("Download complete: %s quality %s, saved to %s", videoID, quality, outputPath)
+	log.Printf("Download complete: %s quality %s, %d bytes saved to %s", videoID, quality, size, outputPath)
 
 	dm.broadcast(videoID, DownloadProgress{
 		Quality: quality,
@@ -339,25 +226,4 @@ func (dm *DownloadManager) setError(key, videoID, quality, errMsg string) {
 		Status:  "error",
 		Error:   errMsg,
 	})
-}
-
-func (dm *DownloadManager) downloadFile(url, destPath string) (int64, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	f, err := os.Create(destPath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	n, err := io.Copy(f, resp.Body)
-	return n, err
 }
