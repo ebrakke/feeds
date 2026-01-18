@@ -58,6 +58,7 @@ func (db *DB) migrate() error {
 		channel_name TEXT NOT NULL,
 		thumbnail TEXT,
 		duration INTEGER,
+		is_short INTEGER,
 		published DATETIME,
 		url TEXT NOT NULL,
 		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE
@@ -109,6 +110,7 @@ func (db *DB) migrate() error {
 		"ALTER TABLE feeds ADD COLUMN author TEXT DEFAULT ''",
 		"ALTER TABLE feeds ADD COLUMN tags TEXT DEFAULT ''",
 		"ALTER TABLE feeds ADD COLUMN is_system BOOLEAN DEFAULT FALSE",
+		"ALTER TABLE videos ADD COLUMN is_short INTEGER",
 	}
 	for _, m := range migrations {
 		// Ignore errors (column may already exist)
@@ -385,9 +387,18 @@ func (db *DB) GetChannelsByURL(url string) ([]models.Channel, error) {
 // Video operations
 
 func (db *DB) UpsertVideo(v *models.Video) error {
+	var isShort *int
+	if v.IsShort != nil {
+		val := 0
+		if *v.IsShort {
+			val = 1
+		}
+		isShort = &val
+	}
+
 	_, err := db.conn.Exec(`
-		INSERT INTO videos (id, channel_id, title, channel_name, thumbnail, duration, published, url)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO videos (id, channel_id, title, channel_name, thumbnail, duration, is_short, published, url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			channel_id = excluded.channel_id,
 			title = excluded.title,
@@ -395,8 +406,12 @@ func (db *DB) UpsertVideo(v *models.Video) error {
 			duration = CASE
 				WHEN excluded.duration > 0 THEN excluded.duration
 				ELSE videos.duration
+			END,
+			is_short = CASE
+				WHEN excluded.is_short IS NOT NULL THEN excluded.is_short
+				ELSE videos.is_short
 			END
-	`, v.ID, v.ChannelID, v.Title, v.ChannelName, v.Thumbnail, v.Duration, v.Published, v.URL)
+	`, v.ID, v.ChannelID, v.Title, v.ChannelName, v.Thumbnail, v.Duration, isShort, v.Published, v.URL)
 	return err
 }
 
@@ -414,7 +429,7 @@ func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, 
 	}
 
 	rows, err := db.conn.Query(`
-		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.published, v.url
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
 		WHERE c.feed_id = ?
@@ -429,8 +444,12 @@ func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, 
 	var videos []models.Video
 	for rows.Next() {
 		var v models.Video
-		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
 			return nil, 0, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
 		}
 		videos = append(videos, v)
 	}
@@ -439,7 +458,7 @@ func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, 
 
 func (db *DB) GetVideosByChannel(channelID int64, limit int) ([]models.Video, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, channel_id, title, channel_name, thumbnail, duration, published, url
+		SELECT id, channel_id, title, channel_name, thumbnail, duration, is_short, published, url
 		FROM videos
 		WHERE channel_id = ?
 		ORDER BY published DESC
@@ -453,8 +472,12 @@ func (db *DB) GetVideosByChannel(channelID int64, limit int) ([]models.Video, er
 	var videos []models.Video
 	for rows.Next() {
 		var v models.Video
-		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
 			return nil, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
 		}
 		videos = append(videos, v)
 	}
@@ -509,7 +532,7 @@ func (db *DB) GetAllRecentVideos(limit, offset int) ([]models.Video, int, error)
 	}
 
 	rows, err := db.conn.Query(`
-		SELECT id, channel_id, title, channel_name, thumbnail, duration, published, url
+		SELECT id, channel_id, title, channel_name, thumbnail, duration, is_short, published, url
 		FROM videos
 		ORDER BY published DESC
 		LIMIT ? OFFSET ?
@@ -522,8 +545,12 @@ func (db *DB) GetAllRecentVideos(limit, offset int) ([]models.Video, int, error)
 	var videos []models.Video
 	for rows.Next() {
 		var v models.Video
-		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
 			return nil, 0, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
 		}
 		videos = append(videos, v)
 	}
@@ -656,7 +683,7 @@ func (db *DB) GetWatchProgressMap(videoIDs []string) (map[string]*WatchProgress,
 
 func (db *DB) GetWatchHistory(limit int) ([]models.Video, error) {
 	rows, err := db.conn.Query(`
-		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.published, v.url
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN watch_progress wp ON v.id = wp.video_id
 		ORDER BY wp.watched_at DESC
@@ -670,8 +697,12 @@ func (db *DB) GetWatchHistory(limit int) ([]models.Video, error) {
 	var videos []models.Video
 	for rows.Next() {
 		var v models.Video
-		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
 			return nil, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
 		}
 		videos = append(videos, v)
 	}
@@ -812,7 +843,7 @@ func (db *DB) GetNearbyVideos(videoID string, limit int) ([]models.Video, int64,
 	// Get videos from the same feed that are older than (or same as) the current video
 	// excluding the current video itself, ordered by newest first
 	rows, err := db.conn.Query(`
-		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.published, v.url
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
 		WHERE c.feed_id = ? AND v.published <= ? AND v.id != ?
@@ -827,10 +858,49 @@ func (db *DB) GetNearbyVideos(videoID string, limit int) ([]models.Video, int64,
 	var videos []models.Video
 	for rows.Next() {
 		var v models.Video
-		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &v.Published, &v.URL); err != nil {
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
 			return nil, 0, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
 		}
 		videos = append(videos, v)
 	}
 	return videos, feedID, rows.Err()
+}
+
+// UpdateVideoIsShort updates the is_short flag for a video
+func (db *DB) UpdateVideoIsShort(videoID string, isShort bool) error {
+	val := 0
+	if isShort {
+		val = 1
+	}
+	_, err := db.conn.Exec(`UPDATE videos SET is_short = ? WHERE id = ?`, val, videoID)
+	return err
+}
+
+// GetVideosWithoutShortStatus returns video IDs that have is_short = NULL
+func (db *DB) GetVideosWithoutShortStatus(feedID int64, limit int) ([]string, error) {
+	rows, err := db.conn.Query(`
+		SELECT v.id FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.feed_id = ? AND v.is_short IS NULL
+		ORDER BY v.published DESC
+		LIMIT ?
+	`, feedID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

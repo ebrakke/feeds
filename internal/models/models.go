@@ -27,6 +27,7 @@ type Video struct {
 	ChannelName string    `json:"channel_name"`
 	Thumbnail   string    `json:"thumbnail"`
 	Duration    int       `json:"duration"`
+	IsShort     *bool     `json:"is_short"` // nil = unknown, true = short, false = not short
 	Published   time.Time `json:"published"`
 	URL         string    `json:"url"`
 }
