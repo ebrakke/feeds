@@ -136,12 +136,12 @@ export async function getVideoInfo(id: string): Promise<{
 	return fetchJSON(`/videos/${id}/info`);
 }
 
-export async function getNearbyVideos(id: string, limit = 20): Promise<{
+export async function getNearbyVideos(id: string, limit = 20, offset = 0): Promise<{
 	videos: Video[];
 	feedId: number;
 	progressMap: Record<string, WatchProgress>;
 }> {
-	return fetchJSON(`/videos/${id}/nearby?limit=${limit}`);
+	return fetchJSON(`/videos/${id}/nearby?limit=${limit}&offset=${offset}`);
 }
 
 export async function updateProgress(id: string, progress: number, duration: number): Promise<void> {

@@ -25,6 +25,12 @@
 	let nearbyProgressMap = $state<Record<string, WatchProgress>>({});
 	let nearbyFeedId = $state(0);
 
+	// Up Next focus mode and infinite scroll
+	let upNextFocusMode = $state(false);
+	let upNextOffset = $state(0);
+	let upNextLoading = $state(false);
+	let upNextHasMore = $state(true);
+
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let subscribing = $state(false);
@@ -235,6 +241,9 @@
 			nearbyVideos = nearby.videos;
 			nearbyProgressMap = nearby.progressMap;
 			nearbyFeedId = nearby.feedId;
+			upNextOffset = 0;
+			upNextHasMore = true;
+			upNextFocusMode = false;
 		} catch (e) {
 			console.warn('Failed to load nearby videos:', e);
 		}
@@ -449,6 +458,49 @@
 			removingChannelId = null;
 		}
 	}
+
+	async function loadMoreNearbyVideos() {
+		if (upNextLoading || !upNextHasMore) return;
+
+		upNextLoading = true;
+		try {
+			const newOffset = upNextOffset + 20;
+			const nearby = await getNearbyVideos(videoId, 20, newOffset);
+			if (nearby.videos.length === 0) {
+				upNextHasMore = false;
+			} else {
+				nearbyVideos = [...nearbyVideos, ...nearby.videos];
+				nearbyProgressMap = { ...nearbyProgressMap, ...nearby.progressMap };
+				upNextOffset = newOffset;
+				if (nearby.videos.length < 20) {
+					upNextHasMore = false;
+				}
+			}
+		} catch (e) {
+			console.warn('Failed to load more nearby videos:', e);
+		} finally {
+			upNextLoading = false;
+		}
+	}
+
+	function handleUpNextScroll(e: Event) {
+		const container = e.target as HTMLDivElement;
+
+		// Enter focus mode on first scroll
+		if (!upNextFocusMode) {
+			upNextFocusMode = true;
+		}
+
+		// Check if near bottom for infinite scroll
+		const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+		if (scrollBottom < 200) {
+			loadMoreNearbyVideos();
+		}
+	}
+
+	function exitFocusMode() {
+		upNextFocusMode = false;
+	}
 </script>
 
 <svelte:head>
@@ -461,7 +513,7 @@
 <div class="max-w-7xl mx-auto">
 	<div class="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-8">
 		<!-- Main Content -->
-		<div class="min-w-0 animate-fade-up" style="opacity: 0;">
+		<div class="min-w-0 animate-fade-up" class:video-focus-mode={upNextFocusMode} style="opacity: 0;">
 			<!-- Video Player -->
 			<div class="player-container mb-4">
 				{#if loading}
@@ -671,6 +723,7 @@
 				</div>
 			{/if}
 
+			{#if !upNextFocusMode}
 			<!-- Title & Channel -->
 			<div class="mb-6">
 				<h1 class="text-xl font-display font-semibold mb-3">
@@ -764,6 +817,7 @@
 				</svg>
 				Watch on YouTube
 			</a>
+			{/if}
 
 			<!-- Mobile Up Next -->
 			{#if nearbyVideos.length > 0}
@@ -807,17 +861,35 @@
 
 		<!-- Desktop Sidebar - Up Next -->
 		{#if nearbyVideos.length > 0}
-			<aside class="hidden lg:block animate-fade-up stagger-2" style="opacity: 0;">
-				<div class="sticky top-20">
+			<aside
+				class="hidden lg:block animate-fade-up stagger-2 transition-all duration-300"
+				class:up-next-focus-mode={upNextFocusMode}
+				style="opacity: 0;"
+			>
+				<div class="sticky top-20" class:up-next-focus-sticky={upNextFocusMode}>
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
-						{#if nearbyFeedId > 0}
-							<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
-								View Feed
-							</a>
-						{/if}
+						<div class="flex items-center gap-3">
+							{#if upNextFocusMode}
+								<button
+									onclick={exitFocusMode}
+									class="text-sm text-text-muted hover:text-white transition-colors"
+								>
+									Exit Focus
+								</button>
+							{/if}
+							{#if nearbyFeedId > 0}
+								<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+									View Feed
+								</a>
+							{/if}
+						</div>
 					</div>
-					<div class="up-next-sidebar space-y-2 pr-2">
+					<div
+						class="up-next-sidebar space-y-2 pr-2"
+						class:up-next-sidebar-focus={upNextFocusMode}
+						onscroll={handleUpNextScroll}
+					>
 						{#each nearbyVideos as video}
 							<a href="/watch/{video.id}" class="up-next-item group">
 								<div class="video-thumbnail w-36 flex-shrink-0">
@@ -841,6 +913,14 @@
 								</div>
 							</a>
 						{/each}
+						{#if upNextLoading}
+							<div class="flex justify-center py-4">
+								<div class="animate-spin rounded-full h-6 w-6 border-2 border-emerald-500 border-t-transparent"></div>
+							</div>
+						{/if}
+						{#if !upNextHasMore && nearbyVideos.length > 0}
+							<p class="text-center text-text-muted text-sm py-4">No more videos</p>
+						{/if}
 					</div>
 				</div>
 			</aside>
