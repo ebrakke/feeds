@@ -161,7 +161,7 @@
 
 {#if loading}
 	<div class="flex flex-col items-center justify-center py-20">
-		<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mb-4"></div>
+		<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4"></div>
 		<p class="text-text-muted font-display">Loading videos...</p>
 	</div>
 {:else if error}
@@ -182,7 +182,7 @@
 
 	{#if loadingMore}
 		<div class="flex justify-center py-8">
-			<div class="w-8 h-8 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin"></div>
+			<div class="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin"></div>
 		</div>
 	{:else if hasMore}
 		<div class="flex justify-center py-8">

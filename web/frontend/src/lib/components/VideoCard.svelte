@@ -135,7 +135,7 @@
 
 			<!-- Hover Play Icon -->
 			<div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
-				<div class="w-14 h-14 rounded-full bg-amber-500/90 flex items-center justify-center shadow-lg shadow-amber-500/20 transform scale-90 group-hover:scale-100 transition-transform">
+				<div class="w-14 h-14 rounded-full bg-emerald-500/90 flex items-center justify-center shadow-lg shadow-emerald-500/20 transform scale-90 group-hover:scale-100 transition-transform">
 					<svg class="w-6 h-6 text-void ml-0.5" viewBox="0 0 24 24" fill="currentColor">
 						<path d="M8 5v14l11-7z"/>
 					</svg>
@@ -147,7 +147,7 @@
 	<!-- Content - optimized for mobile readability -->
 	<div class="p-3 sm:p-3.5">
 		<a href="/watch/{video.id}" class="block group/title" onclick={onVideoClick}>
-			<h3 class="font-display font-medium text-[0.9375rem] sm:text-sm leading-snug line-clamp-2 text-text-primary group-hover/title:text-amber-400 transition-colors">
+			<h3 class="font-display font-medium text-[0.9375rem] sm:text-sm leading-snug line-clamp-2 text-text-primary group-hover/title:text-emerald-400 transition-colors">
 				{video.title}
 			</h3>
 		</a>
@@ -156,7 +156,7 @@
 			{#if showChannel}
 				<a
 					href="/channels/{video.channel_id}"
-					class="text-text-secondary hover:text-amber-400 transition-colors truncate min-w-0"
+					class="text-text-secondary hover:text-emerald-400 transition-colors truncate min-w-0"
 				>
 					{video.channel_name}
 				</a>
@@ -190,7 +190,7 @@
 	{#if showMoveAction && availableFeeds.length > 0}
 		<button
 			onclick={toggleDropdown}
-			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-amber-400 hover:bg-amber-500/20 transition-all opacity-0 group-hover:opacity-100 z-20"
+			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-emerald-400 hover:bg-emerald-500/20 transition-all opacity-0 group-hover:opacity-100 z-20"
 			title="Move channel to..."
 		>
 			<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

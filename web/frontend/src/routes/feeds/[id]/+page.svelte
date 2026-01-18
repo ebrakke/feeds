@@ -236,7 +236,7 @@
 
 {#if loading}
 	<div class="flex flex-col items-center justify-center py-20">
-		<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mb-4"></div>
+		<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4"></div>
 		<p class="text-text-muted font-display">Loading feed...</p>
 	</div>
 {:else if error}
@@ -372,8 +372,8 @@
 		{#if activeTab === 'videos'}
 			{#if isInbox && videos.length === 0 && channels.length === 0}
 				<div class="empty-state">
-					<div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-amber-500/10 flex items-center justify-center">
-						<svg class="w-8 h-8 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+					<div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-emerald-500/10 flex items-center justify-center">
+						<svg class="w-8 h-8 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
 							<polyline points="22,12 16,12 14,15 10,15 8,12 2,12"/>
 							<path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
 						</svg>
@@ -441,7 +441,7 @@
 								disabled={deletingChannels.has(channel.id)}
 								class="checkbox"
 							/>
-							<a href="/channels/{channel.id}" class="flex-1 hover:text-amber-400 transition-colors truncate">
+							<a href="/channels/{channel.id}" class="flex-1 hover:text-emerald-400 transition-colors truncate">
 								{channel.name}
 							</a>
 							<button
@@ -475,7 +475,7 @@
 	{#if activeTab !== 'channels'}
 		{#if loadingMore}
 			<div class="flex justify-center py-8">
-				<div class="w-8 h-8 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin"></div>
+				<div class="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin"></div>
 			</div>
 		{:else if hasMore}
 			<div class="flex justify-center py-8">

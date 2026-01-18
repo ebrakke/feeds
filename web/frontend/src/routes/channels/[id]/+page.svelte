@@ -53,7 +53,7 @@
 
 {#if loading}
 	<div class="flex flex-col items-center justify-center py-20">
-		<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mb-4"></div>
+		<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4"></div>
 		<p class="text-text-muted font-display">Loading channel...</p>
 	</div>
 {:else if error}
@@ -73,8 +73,8 @@
 	<header class="mb-6 animate-fade-up" style="opacity: 0;">
 		<div class="flex items-start justify-between gap-4">
 			<div class="flex items-center gap-4">
-				<div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/20 to-crimson-500/20 flex items-center justify-center border border-white/5">
-					<svg class="w-7 h-7 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+				<div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-crimson-500/20 flex items-center justify-center border border-white/5">
+					<svg class="w-7 h-7 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
 						<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
 						<circle cx="9" cy="7" r="4"/>
 						<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
@@ -90,7 +90,7 @@
 							href={channel.url}
 							target="_blank"
 							rel="noopener"
-							class="text-text-secondary hover:text-amber-400 transition-colors inline-flex items-center gap-1"
+							class="text-text-secondary hover:text-emerald-400 transition-colors inline-flex items-center gap-1"
 						>
 							View on YouTube
 							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

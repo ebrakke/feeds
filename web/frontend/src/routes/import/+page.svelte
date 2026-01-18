@@ -312,8 +312,8 @@
 		<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
 			<div>
 				<div class="flex items-center gap-3 mb-1">
-					<div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-						<svg class="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+						<svg class="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<circle cx="12" cy="12" r="10"/>
 							<polyline points="12 6 12 12 16 14"/>
 						</svg>
@@ -343,7 +343,7 @@
 				{@const isComplete = stepNumber > stepNum}
 				<div class="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
 					<div class="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm font-semibold transition-all
-						{isActive ? 'bg-amber-500 text-void shadow-lg shadow-amber-500/20' : isComplete ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-surface text-text-dim border border-white/5'}">
+						{isActive ? 'bg-emerald-500 text-void shadow-lg shadow-emerald-500/20' : isComplete ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-surface text-text-dim border border-white/5'}">
 						{#if isComplete}
 							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
 								<polyline points="20 6 9 17 4 12"/>
@@ -367,7 +367,7 @@
 				<div class="text-text-muted text-sm mb-4 space-y-2">
 					<p>Export from Google Takeout with YouTube history set to JSON.</p>
 					<ol class="list-decimal list-inside space-y-1 ml-2 text-text-dim">
-						<li>Go to <a href="https://takeout.google.com" target="_blank" rel="noopener" class="text-amber-400 hover:text-amber-300 transition-colors">Google Takeout</a></li>
+						<li>Go to <a href="https://takeout.google.com" target="_blank" rel="noopener" class="text-emerald-400 hover:text-emerald-300 transition-colors">Google Takeout</a></li>
 						<li>Select only "YouTube and YouTube Music"</li>
 						<li>Pick history and change format to JSON</li>
 						<li>Upload <code class="bg-void px-1.5 py-0.5 rounded text-text-secondary">watch-history.json</code></li>
@@ -378,8 +378,8 @@
 					accept=".json"
 					onchange={handleWatchFileChange}
 					class="w-full bg-void border border-white/10 rounded-lg px-4 py-3 mb-4 text-text-primary
-						file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:bg-amber-500 file:text-void file:font-medium file:cursor-pointer
-						file:hover:bg-amber-400 file:transition-colors focus:outline-none focus:border-amber-500/50"
+						file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500 file:text-void file:font-medium file:cursor-pointer
+						file:hover:bg-emerald-400 file:transition-colors focus:outline-none focus:border-emerald-500/50"
 				/>
 				<button
 					onclick={handleWatchUpload}
@@ -407,15 +407,15 @@
 						</p>
 					</div>
 					<div class="flex gap-3 text-sm">
-						<button onclick={selectAllWatchChannels} class="text-amber-400 hover:text-amber-300 transition-colors">All</button>
-						<button onclick={selectNoneWatchChannels} class="text-amber-400 hover:text-amber-300 transition-colors">None</button>
-						<button onclick={() => selectTopWatchChannels(50)} class="text-amber-400 hover:text-amber-300 transition-colors">Top 50</button>
-						<button onclick={() => selectTopWatchChannels(100)} class="text-amber-400 hover:text-amber-300 transition-colors">Top 100</button>
+						<button onclick={selectAllWatchChannels} class="text-emerald-400 hover:text-emerald-300 transition-colors">All</button>
+						<button onclick={selectNoneWatchChannels} class="text-emerald-400 hover:text-emerald-300 transition-colors">None</button>
+						<button onclick={() => selectTopWatchChannels(50)} class="text-emerald-400 hover:text-emerald-300 transition-colors">Top 50</button>
+						<button onclick={() => selectTopWatchChannels(100)} class="text-emerald-400 hover:text-emerald-300 transition-colors">Top 100</button>
 					</div>
 				</div>
 
 				<p class="text-text-secondary text-sm mb-3">
-					<span class="text-amber-400 font-medium">{watchSelectedChannels.size}</span> of {watchChannels.length} selected
+					<span class="text-emerald-400 font-medium">{watchSelectedChannels.size}</span> of {watchChannels.length} selected
 				</p>
 
 				<div class="max-h-80 overflow-y-auto border border-white/5 rounded-xl mb-5 bg-void">
@@ -533,7 +533,7 @@
 			<div class="bg-surface rounded-xl p-5 border border-white/5">
 				<h3 class="text-sm font-display font-semibold mb-2">Confirm Import</h3>
 				<p class="text-text-muted text-sm mb-5">
-					This will create <span class="text-amber-400 font-medium">{watchGroups.length}</span> feeds with a total of <span class="text-amber-400 font-medium">{watchGroups.reduce((acc, g) => acc + g.channels.length, 0)}</span> channels.
+					This will create <span class="text-emerald-400 font-medium">{watchGroups.length}</span> feeds with a total of <span class="text-emerald-400 font-medium">{watchGroups.reduce((acc, g) => acc + g.channels.length, 0)}</span> channels.
 				</p>
 
 				<div class="space-y-2 mb-6">
@@ -606,7 +606,7 @@
 				bind:value={cookiesText}
 				rows="5"
 				placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;FALSE&#9;0&#9;VISITOR_INFO1_LIVE&#9;..."
-				class="w-full bg-void border border-white/10 rounded-xl px-4 py-3 mb-4 text-text-primary placeholder-text-dim font-mono text-sm focus:outline-none focus:border-amber-500/50 transition-colors"
+				class="w-full bg-void border border-white/10 rounded-xl px-4 py-3 mb-4 text-text-primary placeholder-text-dim font-mono text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
 			></textarea>
 			<div class="flex items-center gap-3">
 				<button
@@ -656,7 +656,7 @@
 					type="url"
 					bind:value={importURL}
 					placeholder="https://example.com/feed.json"
-					class="w-full bg-void border border-white/10 rounded-lg px-4 py-3 mb-4 text-text-primary placeholder-text-dim focus:outline-none focus:border-amber-500/50 transition-colors"
+					class="w-full bg-void border border-white/10 rounded-lg px-4 py-3 mb-4 text-text-primary placeholder-text-dim focus:outline-none focus:border-emerald-500/50 transition-colors"
 				/>
 				<button
 					type="submit"
@@ -696,8 +696,8 @@
 					accept=".json"
 					onchange={handleFileChange}
 					class="w-full bg-void border border-white/10 rounded-lg px-4 py-3 mb-4 text-text-primary
-						file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:bg-amber-500 file:text-void file:font-medium file:cursor-pointer
-						file:hover:bg-amber-400 file:transition-colors focus:outline-none focus:border-amber-500/50"
+						file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500 file:text-void file:font-medium file:cursor-pointer
+						file:hover:bg-emerald-400 file:transition-colors focus:outline-none focus:border-emerald-500/50"
 				/>
 				<button
 					type="submit"
@@ -720,8 +720,8 @@
 	{#if packs.length > 0}
 		<section class="card p-6 animate-fade-up stagger-4" style="opacity: 0;">
 			<div class="flex items-center gap-3 mb-4">
-				<div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-					<svg class="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+					<svg class="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
 						<polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
 						<line x1="12" y1="22.08" x2="12" y2="12"/>
@@ -737,9 +737,9 @@
 					<button
 						onclick={() => handlePackImport(pack.name)}
 						disabled={importLoading}
-						class="text-left bg-surface hover:bg-surface-alt disabled:opacity-50 rounded-xl p-4 border border-white/5 hover:border-amber-500/30 transition-all group"
+						class="text-left bg-surface hover:bg-surface-alt disabled:opacity-50 rounded-xl p-4 border border-white/5 hover:border-emerald-500/30 transition-all group"
 					>
-						<h3 class="font-display font-semibold text-text-primary group-hover:text-amber-400 transition-colors">{pack.name}</h3>
+						<h3 class="font-display font-semibold text-text-primary group-hover:text-emerald-400 transition-colors">{pack.name}</h3>
 						<p class="text-sm text-text-muted mt-1">{pack.description}</p>
 						{#if pack.tags && pack.tags.length > 0}
 							<div class="flex flex-wrap gap-1.5 mt-3">

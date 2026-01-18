@@ -50,7 +50,7 @@
 
 {#if loading}
 	<div class="flex flex-col items-center justify-center py-20">
-		<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mb-4"></div>
+		<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4"></div>
 		<p class="text-text-muted font-display">Loading history...</p>
 	</div>
 {:else if error}

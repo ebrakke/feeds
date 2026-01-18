@@ -15,12 +15,12 @@
 			<nav class="flex items-center justify-between h-14 sm:h-16">
 				<!-- Logo -->
 				<a href="/" class="group flex items-center gap-2 sm:gap-2.5 -ml-1 p-1 rounded-lg">
-					<div class="w-9 h-9 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-[0_0_20px_rgba(251,191,36,0.2)] group-hover:shadow-[0_0_30px_rgba(251,191,36,0.3)] transition-shadow">
+					<div class="w-9 h-9 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-[0_0_20px_rgba(52,211,153,0.2)] group-hover:shadow-[0_0_30px_rgba(52,211,153,0.3)] transition-shadow">
 						<svg class="w-4.5 h-4.5 sm:w-4 sm:h-4 text-[#050505]" viewBox="0 0 24 24" fill="currentColor">
 							<path d="M8 5v14l11-7z"/>
 						</svg>
 					</div>
-					<span class="text-lg font-display font-semibold tracking-tight text-text-primary group-hover:text-amber-400 transition-colors">
+					<span class="text-lg font-display font-semibold tracking-tight text-text-primary group-hover:text-emerald-400 transition-colors">
 						Feeds
 					</span>
 				</a>

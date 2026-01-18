@@ -86,7 +86,7 @@
 {#if loading}
 	<!-- Loading State -->
 	<div class="flex flex-col items-center justify-center py-20">
-		<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mb-4"></div>
+		<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4"></div>
 		<p class="text-text-muted font-display">Loading your feeds...</p>
 	</div>
 {:else if error}
@@ -134,17 +134,17 @@
 				style="opacity: 0;"
 			>
 				<div class="flex items-center gap-3">
-					<div class="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center group-hover:scale-105 transition-transform">
-						<svg class="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<div class="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center group-hover:scale-105 transition-transform">
+						<svg class="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<polyline points="22,12 16,12 14,15 10,15 8,12 2,12"/>
 							<path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
 						</svg>
 					</div>
 					<div>
-						<h3 class="font-display font-semibold text-amber-300">Inbox</h3>
-						<p class="text-sm text-amber-400/60">New channels to organize</p>
+						<h3 class="font-display font-semibold text-emerald-300">Inbox</h3>
+						<p class="text-sm text-emerald-400/60">New channels to organize</p>
 					</div>
-					<svg class="w-5 h-5 text-amber-400/40 ml-auto group-hover:translate-x-1 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg class="w-5 h-5 text-emerald-400/40 ml-auto group-hover:translate-x-1 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M9 18l6-6-6-6"/>
 					</svg>
 				</div>
@@ -186,14 +186,14 @@
 						>
 							<div class="flex items-center gap-3">
 								<div class="w-10 h-10 rounded-lg bg-elevated flex items-center justify-center group-hover:bg-border transition-colors">
-									<svg class="w-5 h-5 text-text-muted group-hover:text-amber-400 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<svg class="w-5 h-5 text-text-muted group-hover:text-emerald-400 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M4 11a9 9 0 0 1 9 9"/>
 										<path d="M4 4a16 16 0 0 1 16 16"/>
 										<circle cx="5" cy="19" r="1"/>
 									</svg>
 								</div>
 								<div class="flex-1 min-w-0">
-									<h3 class="font-display font-medium truncate group-hover:text-amber-400 transition-colors">{feed.name}</h3>
+									<h3 class="font-display font-medium truncate group-hover:text-emerald-400 transition-colors">{feed.name}</h3>
 									<p class="text-sm text-text-muted">Updated {formatDate(feed.updated_at)}</p>
 								</div>
 								<svg class="w-5 h-5 text-text-dim group-hover:text-text-muted group-hover:translate-x-1 transition-all" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

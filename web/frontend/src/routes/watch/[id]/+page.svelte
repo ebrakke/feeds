@@ -467,7 +467,7 @@
 				{#if loading}
 					<div class="absolute inset-0 flex items-center justify-center">
 						<div class="text-center">
-							<div class="w-12 h-12 rounded-full border-2 border-amber-500/20 border-t-amber-500 animate-spin mx-auto mb-3"></div>
+							<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mx-auto mb-3"></div>
 							<p class="text-text-muted font-display text-sm">Loading video...</p>
 						</div>
 					</div>
@@ -676,7 +676,7 @@
 					<div class="flex items-center gap-2 flex-wrap">
 						{#each channelMemberships as membership}
 							<span class="badge">
-								<a href="/feeds/{membership.feedId}" class="hover:text-amber-400 transition-colors">
+								<a href="/feeds/{membership.feedId}" class="hover:text-emerald-400 transition-colors">
 									{membership.feedName}
 								</a>
 								<button
@@ -721,7 +721,7 @@
 								Add
 							</button>
 						{:else if feeds.length === 0 && !loading}
-							<a href="/import" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">
+							<a href="/import" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
 								Create a feed first
 							</a>
 						{/if}
@@ -733,7 +733,7 @@
 				href="https://www.youtube.com/watch?v={videoId}"
 				target="_blank"
 				rel="noopener"
-				class="inline-flex items-center gap-2 text-sm text-text-muted hover:text-amber-400 transition-colors"
+				class="inline-flex items-center gap-2 text-sm text-text-muted hover:text-emerald-400 transition-colors"
 			>
 				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -749,7 +749,7 @@
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
 						{#if nearbyFeedId > 0}
-							<a href="/feeds/{nearbyFeedId}" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">
+							<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
 								View Feed
 							</a>
 						{/if}
@@ -771,7 +771,7 @@
 									{/if}
 								</div>
 								<div class="flex-1 min-w-0">
-									<h3 class="text-sm font-medium line-clamp-2 group-hover:text-amber-400 transition-colors">
+									<h3 class="text-sm font-medium line-clamp-2 group-hover:text-emerald-400 transition-colors">
 										{video.title}
 									</h3>
 									<p class="text-xs text-text-muted mt-1">{video.channel_name}</p>
@@ -790,7 +790,7 @@
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
 						{#if nearbyFeedId > 0}
-							<a href="/feeds/{nearbyFeedId}" class="text-sm text-amber-400 hover:text-amber-300 transition-colors">
+							<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
 								View Feed
 							</a>
 						{/if}
@@ -812,7 +812,7 @@
 									{/if}
 								</div>
 								<div class="flex-1 min-w-0">
-									<h3 class="text-sm font-medium line-clamp-2 group-hover:text-amber-400 transition-colors">
+									<h3 class="text-sm font-medium line-clamp-2 group-hover:text-emerald-400 transition-colors">
 										{video.title}
 									</h3>
 									<p class="text-xs text-text-muted mt-1">{video.channel_name}</p>

@@ -1,8 +1,8 @@
-@import 'tailwindcss';
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Onest:wght@300;400;500;600&display=swap');
+@import 'tailwindcss';
 
 /* ============================================
-   CINEMATIC DARK THEATER DESIGN SYSTEM
+   CINEMATIC DARK DESIGN SYSTEM
    A premium, immersive viewing experience
    ============================================ */
 
@@ -19,15 +19,15 @@
   --color-border: #252525;
   --color-border-subtle: #1f1f1f;
 
-  /* Warm Accent - Theater Amber/Gold */
-  --color-amber-50: #fffbeb;
-  --color-amber-100: #fef3c7;
-  --color-amber-200: #fde68a;
-  --color-amber-300: #fcd34d;
-  --color-amber-400: #fbbf24;
-  --color-amber-500: #f59e0b;
-  --color-amber-600: #d97706;
-  --color-amber-glow: rgba(251, 191, 36, 0.15);
+  /* Fresh Accent - Emerald Green */
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-emerald-glow: rgba(52, 211, 153, 0.15);
 
   /* Crimson - For Video/Progress States */
   --color-crimson-400: #f87171;
@@ -53,7 +53,7 @@
   /* Shadows */
   --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-glow-amber: 0 0 20px rgba(251, 191, 36, 0.1);
+  --shadow-glow-emerald: 0 0 20px rgba(52, 211, 153, 0.1);
   --shadow-glow-crimson: 0 0 20px rgba(239, 68, 68, 0.1);
 
   /* Border Radius */
@@ -113,13 +113,13 @@ a {
 
 /* Focus States */
 :focus-visible {
-  outline: 2px solid var(--color-amber-400);
+  outline: 2px solid var(--color-emerald-400);
   outline-offset: 2px;
 }
 
 /* Selection */
 ::selection {
-  background: var(--color-amber-500);
+  background: var(--color-emerald-500);
   color: var(--color-void);
 }
 
@@ -196,10 +196,10 @@ a {
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 0 var(--color-amber-glow);
+    box-shadow: 0 0 0 0 var(--color-emerald-glow);
   }
   50% {
-    box-shadow: 0 0 20px 4px var(--color-amber-glow);
+    box-shadow: 0 0 20px 4px var(--color-emerald-glow);
   }
 }
 
@@ -290,15 +290,15 @@ a {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-amber-500), var(--color-amber-600));
+  background: linear-gradient(135deg, var(--color-emerald-500), var(--color-emerald-600));
   color: var(--color-void);
-  box-shadow: var(--shadow-glow-amber);
+  box-shadow: var(--shadow-glow-emerald);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--color-amber-400), var(--color-amber-500));
+  background: linear-gradient(135deg, var(--color-emerald-400), var(--color-emerald-500));
   transform: translateY(-1px);
-  box-shadow: 0 0 30px rgba(251, 191, 36, 0.2);
+  box-shadow: 0 0 30px rgba(52, 211, 153, 0.2);
 }
 
 .btn-secondary {
@@ -362,8 +362,8 @@ a {
 
 .input:focus {
   outline: none;
-  border-color: var(--color-amber-500);
-  box-shadow: 0 0 0 3px var(--color-amber-glow);
+  border-color: var(--color-emerald-500);
+  box-shadow: 0 0 0 3px var(--color-emerald-glow);
 }
 
 /* Checkbox */
@@ -380,8 +380,8 @@ a {
 }
 
 .checkbox:checked {
-  background: var(--color-amber-500);
-  border-color: var(--color-amber-500);
+  background: var(--color-emerald-500);
+  border-color: var(--color-emerald-500);
 }
 
 .checkbox:checked::after {
@@ -397,7 +397,7 @@ a {
 }
 
 .checkbox:focus-visible {
-  outline: 2px solid var(--color-amber-400);
+  outline: 2px solid var(--color-emerald-400);
   outline-offset: 2px;
 }
 
@@ -420,7 +420,7 @@ a {
 
 .select:focus {
   outline: none;
-  border-color: var(--color-amber-500);
+  border-color: var(--color-emerald-500);
 }
 
 /* Badge */
@@ -437,9 +437,9 @@ a {
   color: var(--color-text-secondary);
 }
 
-.badge-amber {
-  background: var(--color-amber-glow);
-  color: var(--color-amber-400);
+.badge-emerald {
+  background: var(--color-emerald-glow);
+  color: var(--color-emerald-400);
 }
 
 .badge-success {
@@ -466,7 +466,7 @@ a {
 }
 
 .tab.active {
-  color: var(--color-amber-400);
+  color: var(--color-emerald-400);
 }
 
 .tab.active::after {
@@ -476,7 +476,7 @@ a {
   left: 0;
   right: 0;
   height: 2px;
-  background: var(--color-amber-500);
+  background: var(--color-emerald-500);
   border-radius: 1px;
 }
 
@@ -621,7 +621,7 @@ a {
   inset: -1px;
   background: linear-gradient(
     135deg,
-    var(--color-amber-glow),
+    var(--color-emerald-glow),
     transparent 50%,
     var(--color-crimson-glow)
   );
@@ -659,7 +659,7 @@ a {
   left: -50%;
   background: radial-gradient(
     circle at center,
-    var(--color-amber-glow) 0%,
+    var(--color-emerald-glow) 0%,
     transparent 40%
   );
   opacity: 0;
@@ -704,24 +704,24 @@ a {
 }
 
 .feed-card-featured {
-  background: linear-gradient(135deg, var(--color-amber-600) 0%, var(--color-amber-500) 100%);
+  background: linear-gradient(135deg, var(--color-emerald-600) 0%, var(--color-emerald-500) 100%);
   border: none;
   color: var(--color-void);
 }
 
 .feed-card-featured:hover {
-  background: linear-gradient(135deg, var(--color-amber-500) 0%, var(--color-amber-400) 100%);
-  box-shadow: var(--shadow-glow-amber);
+  background: linear-gradient(135deg, var(--color-emerald-500) 0%, var(--color-emerald-400) 100%);
+  box-shadow: var(--shadow-glow-emerald);
 }
 
 .feed-card-inbox {
-  background: var(--color-amber-glow);
-  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: var(--color-emerald-glow);
+  border: 1px solid rgba(52, 211, 153, 0.2);
 }
 
 .feed-card-inbox:hover {
-  background: rgba(251, 191, 36, 0.2);
-  border-color: rgba(251, 191, 36, 0.3);
+  background: rgba(52, 211, 153, 0.2);
+  border-color: rgba(52, 211, 153, 0.3);
 }
 
 /* Video Player Page */
@@ -822,9 +822,9 @@ a {
 }
 
 .step-dot.active {
-  background: var(--color-amber-500);
+  background: var(--color-emerald-500);
   color: var(--color-void);
-  box-shadow: 0 0 20px var(--color-amber-glow);
+  box-shadow: 0 0 20px var(--color-emerald-glow);
 }
 
 .step-dot.completed {
@@ -926,8 +926,8 @@ a {
 }
 
 .speed-btn.active {
-  background: var(--color-amber-500);
-  border-color: var(--color-amber-500);
+  background: var(--color-emerald-500);
+  border-color: var(--color-emerald-500);
   color: var(--color-void);
 }
 
@@ -1167,14 +1167,14 @@ a {
 }
 
 .file-input:hover {
-  border-color: var(--color-amber-500);
-  background: var(--color-amber-glow);
+  border-color: var(--color-emerald-500);
+  background: var(--color-emerald-glow);
 }
 
 .file-input::file-selector-button {
   margin-right: 1rem;
   padding: 0.5rem 1rem;
-  background: var(--color-amber-500);
+  background: var(--color-emerald-500);
   border: none;
   border-radius: var(--radius-sm);
   color: var(--color-void);
@@ -1185,7 +1185,7 @@ a {
 }
 
 .file-input::file-selector-button:hover {
-  background: var(--color-amber-400);
+  background: var(--color-emerald-400);
 }
 
 /* Textarea */
@@ -1210,8 +1210,8 @@ a {
 
 .textarea:focus {
   outline: none;
-  border-color: var(--color-amber-500);
-  box-shadow: 0 0 0 3px var(--color-amber-glow);
+  border-color: var(--color-emerald-500);
+  box-shadow: 0 0 0 3px var(--color-emerald-glow);
 }
 
 /* Alert/Notice Boxes */
@@ -1413,9 +1413,9 @@ a {
 }
 
 .quality-btn.active {
-  background: var(--color-amber-500);
+  background: var(--color-emerald-500);
   color: var(--color-void);
-  border-color: var(--color-amber-500);
+  border-color: var(--color-emerald-500);
 }
 
 .quality-btn.cached {
@@ -1438,7 +1438,7 @@ a {
 
 .quality-progress {
   font-size: 0.75rem;
-  color: var(--color-amber-500);
+  color: var(--color-emerald-500);
 }
 
 /* ============================================
@@ -1486,7 +1486,7 @@ a {
 
 .download-progress-fill {
   height: 100%;
-  background: var(--color-amber-500);
+  background: var(--color-emerald-500);
   transition: width 0.3s ease;
 }
 
