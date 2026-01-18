@@ -688,6 +688,9 @@ func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request)
 	// Fetch durations for videos that don't have them (in background)
 	go s.fetchMissingDurations(feedID)
 
+	// Check shorts status for videos that don't have it (in background)
+	go s.fetchMissingShortsStatus(feedID)
+
 	// Send completion event
 	complete := map[string]any{
 		"totalVideos": totalVideos,
@@ -739,6 +742,40 @@ func (s *Server) fetchMissingDurations(feedID int64) {
 	}
 
 	log.Printf("Finished fetching durations for feed %d", feedID)
+}
+
+// fetchMissingShortsStatus checks shorts status for videos that don't have it
+func (s *Server) fetchMissingShortsStatus(feedID int64) {
+	videoIDs, err := s.db.GetVideosWithoutShortStatus(feedID, 100)
+	if err != nil {
+		log.Printf("Failed to get videos without shorts status: %v", err)
+		return
+	}
+
+	if len(videoIDs) == 0 {
+		return
+	}
+
+	log.Printf("Checking shorts status for %d videos in feed %d", len(videoIDs), feedID)
+
+	// Check in batches
+	batchSize := 20
+	for i := 0; i < len(videoIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(videoIDs) {
+			end = len(videoIDs)
+		}
+		batch := videoIDs[i:end]
+
+		results := youtube.CheckShortsStatus(batch)
+		for videoID, isShort := range results {
+			if err := s.db.UpdateVideoIsShort(videoID, isShort); err != nil {
+				log.Printf("Failed to update shorts status for %s: %v", videoID, err)
+			}
+		}
+	}
+
+	log.Printf("Finished checking shorts status for feed %d", feedID)
 }
 
 func (s *Server) handleDeleteFeed(w http.ResponseWriter, r *http.Request) {
