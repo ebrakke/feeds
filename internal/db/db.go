@@ -392,7 +392,10 @@ func (db *DB) UpsertVideo(v *models.Video) error {
 			channel_id = excluded.channel_id,
 			title = excluded.title,
 			thumbnail = excluded.thumbnail,
-			duration = excluded.duration
+			duration = CASE
+				WHEN excluded.duration > 0 THEN excluded.duration
+				ELSE videos.duration
+			END
 	`, v.ID, v.ChannelID, v.Title, v.ChannelName, v.Thumbnail, v.Duration, v.Published, v.URL)
 	return err
 }
