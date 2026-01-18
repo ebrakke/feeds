@@ -207,29 +207,37 @@
 		}
 
 		const selectedList = watchChannels.filter(c => watchSelectedChannels.has(c.url));
-		const heavy: { url: string; name: string }[] = [];
-		const regular: { url: string; name: string }[] = [];
+		const heavyRotation: { url: string; name: string }[] = [];
+		const regulars: { url: string; name: string }[] = [];
+		const frequent: { url: string; name: string }[] = [];
 		const occasional: { url: string; name: string }[] = [];
-		const oneTime: { url: string; name: string }[] = [];
+		const fewTimes: { url: string; name: string }[] = [];
+		const discovered: { url: string; name: string }[] = [];
 
 		for (const ch of selectedList) {
 			const item = { url: ch.url, name: ch.name };
-			if (ch.watch_count >= 20) {
-				heavy.push(item);
+			if (ch.watch_count >= 50) {
+				heavyRotation.push(item);
+			} else if (ch.watch_count >= 20) {
+				regulars.push(item);
+			} else if (ch.watch_count >= 10) {
+				frequent.push(item);
 			} else if (ch.watch_count >= 5) {
-				regular.push(item);
-			} else if (ch.watch_count >= 2) {
 				occasional.push(item);
+			} else if (ch.watch_count >= 2) {
+				fewTimes.push(item);
 			} else {
-				oneTime.push(item);
+				discovered.push(item);
 			}
 		}
 
 		const newGroups: GroupSuggestion[] = [];
-		if (heavy.length > 0) newGroups.push({ name: 'Favorites (20+ views)', channels: heavy });
-		if (regular.length > 0) newGroups.push({ name: 'Regular (5-19 views)', channels: regular });
-		if (occasional.length > 0) newGroups.push({ name: 'Occasional (2-4 views)', channels: occasional });
-		if (oneTime.length > 0) newGroups.push({ name: 'One-time (1 view)', channels: oneTime });
+		if (heavyRotation.length > 0) newGroups.push({ name: 'Heavy Rotation (50+)', channels: heavyRotation });
+		if (regulars.length > 0) newGroups.push({ name: 'Regulars (20-49)', channels: regulars });
+		if (frequent.length > 0) newGroups.push({ name: 'Frequent (10-19)', channels: frequent });
+		if (occasional.length > 0) newGroups.push({ name: 'Occasional (5-9)', channels: occasional });
+		if (fewTimes.length > 0) newGroups.push({ name: 'A Few Times (2-4)', channels: fewTimes });
+		if (discovered.length > 0) newGroups.push({ name: 'Discovered (1)', channels: discovered });
 
 		watchGroups = newGroups;
 		watchStep = 'organize';
@@ -363,16 +371,55 @@
 		<!-- Step Content -->
 		{#if watchStep === 'upload'}
 			<div class="bg-surface rounded-xl p-5 border border-white/5">
-				<h3 class="text-sm font-display font-semibold mb-3">Upload watch-history.json</h3>
-				<div class="text-text-muted text-sm mb-4 space-y-2">
-					<p>Export from Google Takeout with YouTube history set to JSON.</p>
-					<ol class="list-decimal list-inside space-y-1 ml-2 text-text-dim">
-						<li>Go to <a href="https://takeout.google.com" target="_blank" rel="noopener" class="text-emerald-400 hover:text-emerald-300 transition-colors">Google Takeout</a></li>
-						<li>Select only "YouTube and YouTube Music"</li>
-						<li>Pick history and change format to JSON</li>
-						<li>Upload <code class="bg-void px-1.5 py-0.5 rounded text-text-secondary">watch-history.json</code></li>
+				<h3 class="text-sm font-display font-semibold mb-3">Get Your YouTube Watch History</h3>
+				<p class="text-text-muted text-sm mb-4">
+					Import your watch history to discover channels you actually care about. We'll organize them by how often you watch.
+				</p>
+
+				<div class="bg-void rounded-xl p-4 mb-5 border border-white/5">
+					<h4 class="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">How to export from Google Takeout</h4>
+					<ol class="space-y-3 text-sm">
+						<li class="flex gap-3">
+							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">1</span>
+							<div>
+								<span class="text-text-primary">Go to </span>
+								<a href="https://takeout.google.com" target="_blank" rel="noopener" class="text-emerald-400 hover:text-emerald-300 transition-colors font-medium">takeout.google.com</a>
+							</div>
+						</li>
+						<li class="flex gap-3">
+							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">2</span>
+							<div class="text-text-primary">
+								Click <span class="text-text-secondary">"Deselect all"</span>, then scroll down and check only <span class="text-text-secondary">"YouTube and YouTube Music"</span>
+							</div>
+						</li>
+						<li class="flex gap-3">
+							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">3</span>
+							<div class="text-text-primary">
+								Click <span class="text-text-secondary">"All YouTube data included"</span> → deselect everything except <span class="text-text-secondary">"history"</span>
+							</div>
+						</li>
+						<li class="flex gap-3">
+							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">4</span>
+							<div class="text-text-primary">
+								Click <span class="text-text-secondary">"Multiple formats"</span> → find history and change format from <span class="text-crimson-400">HTML</span> to <span class="text-emerald-400 font-medium">JSON</span>
+								<span class="block text-text-dim text-xs mt-1">This step is important - the default HTML format won't work</span>
+							</div>
+						</li>
+						<li class="flex gap-3">
+							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">5</span>
+							<div class="text-text-primary">
+								Click <span class="text-text-secondary">"Next step"</span> → <span class="text-text-secondary">"Create export"</span> → wait for email → download and unzip
+							</div>
+						</li>
+						<li class="flex gap-3">
+							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">6</span>
+							<div class="text-text-primary">
+								Find <code class="bg-surface px-1.5 py-0.5 rounded text-emerald-400 text-xs">watch-history.json</code> in the <code class="bg-surface px-1.5 py-0.5 rounded text-text-secondary text-xs">YouTube and YouTube Music/history/</code> folder
+							</div>
+						</li>
 					</ol>
 				</div>
+
 				<input
 					type="file"
 					accept=".json"
