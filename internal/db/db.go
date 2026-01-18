@@ -826,7 +826,8 @@ func (db *DB) MarkSponsorBlockFetched(videoID string) error {
 // GetNearbyVideos returns videos from the same feed as the given video,
 // positioned around the current video based on publish date.
 // Returns up to `limit` videos that come after this video in the feed.
-func (db *DB) GetNearbyVideos(videoID string, limit int) ([]models.Video, int64, error) {
+// Excludes shorts.
+func (db *DB) GetNearbyVideos(videoID string, limit int, offset int) ([]models.Video, int64, error) {
 	// First, get the video's feed and published date
 	var feedID int64
 	var published time.Time
@@ -841,15 +842,15 @@ func (db *DB) GetNearbyVideos(videoID string, limit int) ([]models.Video, int64,
 	}
 
 	// Get videos from the same feed that are older than (or same as) the current video
-	// excluding the current video itself, ordered by newest first
+	// excluding the current video itself and shorts, ordered by newest first
 	rows, err := db.conn.Query(`
 		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ? AND v.published <= ? AND v.id != ?
+		WHERE c.feed_id = ? AND v.published <= ? AND v.id != ? AND (v.is_short IS NULL OR v.is_short = 0)
 		ORDER BY v.published DESC
-		LIMIT ?
-	`, feedID, published, videoID, limit)
+		LIMIT ? OFFSET ?
+	`, feedID, published, videoID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -970,7 +970,15 @@ func (s *Server) handleAPINearbyVideos(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	videos, feedID, err := s.db.GetNearbyVideos(videoID, limit)
+	offsetStr := r.URL.Query().Get("offset")
+	offset := 0
+	if offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	videos, feedID, err := s.db.GetNearbyVideos(videoID, limit, offset)
 	if err != nil {
 		// Video might not be in our database (e.g., watching from URL)
 		w.Header().Set("Content-Type", "application/json")
