@@ -181,6 +181,7 @@
 	}
 
 	async function loadVideo(id: string) {
+		// Save progress for previous video before switching
 		if (videoElement && !loading && previousVideoId) {
 			const currentTime = Math.floor(videoElement.currentTime);
 			const duration = Math.floor(videoElement.duration) || 0;
@@ -188,6 +189,14 @@
 				await updateProgress(previousVideoId, currentTime, duration).catch(() => {});
 			}
 		}
+
+		// CRITICAL: Stop and clear the current video to prevent phantom audio
+		if (videoElement) {
+			videoElement.pause();
+			videoElement.removeAttribute('src');
+			videoElement.load(); // Reset the media element
+		}
+
 		previousVideoId = id;
 
 		loading = true;
@@ -317,9 +326,14 @@
 		saveProgress();
 		if (videoElement) {
 			videoElement.pause();
+			videoElement.removeAttribute('src');
+			videoElement.load(); // Fully release the media resources
 		}
 		if (unsubscribeProgress) {
 			unsubscribeProgress();
+		}
+		if (skipNoticeTimeout) {
+			clearTimeout(skipNoticeTimeout);
 		}
 	});
 
