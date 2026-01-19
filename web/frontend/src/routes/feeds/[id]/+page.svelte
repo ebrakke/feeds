@@ -13,7 +13,6 @@
 	let channels = $state<Channel[]>([]);
 	let videos = $state<Video[]>([]);
 	let progressMap = $state<Record<string, WatchProgress>>({});
-	let allFeeds = $state<Feed[]>([]);
 	let loading = $state(true);
 	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
@@ -55,9 +54,6 @@
 
 	// Inbox-specific behavior
 	let isInbox = $derived(feed?.is_system === true);
-	let moveTargetFeeds = $derived(
-		allFeeds.filter(f => f.id !== feed?.id && !f.is_system)
-	);
 
 	onMount(async () => {
 		await loadFeed();
@@ -72,7 +68,6 @@
 			channels = data.channels || [];
 			videos = data.videos || [];
 			progressMap = data.progressMap || {};
-			allFeeds = data.allFeeds || [];
 			total = data.total || 0;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load feed';
@@ -264,6 +259,13 @@
 			error = `Failed to remove ${failed} channel${failed > 1 ? 's' : ''}`;
 		}
 	}
+
+	function handleChannelRemovedFromFeed(channelId: number) {
+		// Remove all videos from this channel from the view
+		videos = videos.filter(v => v.channel_id !== channelId);
+		// Remove from channels list
+		channels = channels.filter(c => c.id !== channelId);
+	}
 </script>
 
 <svelte:head>
@@ -430,11 +432,10 @@
 				<VideoGrid
 					videos={displayRegularVideos}
 					{progressMap}
-					showMoveAction={isInbox}
-					showRemoveAction={!isInbox}
-					availableFeeds={moveTargetFeeds}
-					onChannelMoved={loadFeed}
-					onChannelRemoved={loadFeed}
+					showChannel={true}
+					showRemoveFromFeed={true}
+					currentFeedId={feed?.id}
+					onChannelRemovedFromFeed={handleChannelRemovedFromFeed}
 					{scrollRestoreKey}
 				/>
 			{/if}
@@ -442,11 +443,10 @@
 			<VideoGrid
 				videos={displayShortsVideos}
 				{progressMap}
-				showMoveAction={isInbox}
-				showRemoveAction={!isInbox}
-				availableFeeds={moveTargetFeeds}
-				onChannelMoved={loadFeed}
-				onChannelRemoved={loadFeed}
+				showChannel={true}
+				showRemoveFromFeed={true}
+				currentFeedId={feed?.id}
+				onChannelRemovedFromFeed={handleChannelRemovedFromFeed}
 				scrollRestoreKey={`${scrollRestoreKey}-shorts`}
 			/>
 		{:else if activeTab === 'shuffle'}
@@ -480,9 +480,7 @@
 				<VideoGrid
 					videos={shuffledVideos}
 					progressMap={{}}
-					showMoveAction={false}
-					showRemoveAction={false}
-					availableFeeds={[]}
+					showRemoveFromFeed={false}
 					scrollRestoreKey={`${scrollRestoreKey}-shuffle`}
 				/>
 			{/if}

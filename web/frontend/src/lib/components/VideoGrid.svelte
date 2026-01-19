@@ -1,18 +1,16 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
-	import type { Video, WatchProgress, Feed } from '$lib/types';
+	import type { Video, WatchProgress } from '$lib/types';
 	import VideoCard from './VideoCard.svelte';
 
 	interface Props {
 		videos: Video[];
 		progressMap: Record<string, WatchProgress>;
 		showChannel?: boolean;
-		showMoveAction?: boolean;
-		showRemoveAction?: boolean;
-		availableFeeds?: Feed[];
-		onChannelMoved?: () => void;
-		onChannelRemoved?: () => void;
+		showRemoveFromFeed?: boolean;
+		currentFeedId?: number;
+		onChannelRemovedFromFeed?: (channelId: number) => void;
 		scrollRestoreKey?: string;
 	}
 
@@ -20,11 +18,9 @@
 		videos,
 		progressMap,
 		showChannel = true,
-		showMoveAction = false,
-		showRemoveAction = false,
-		availableFeeds = [],
-		onChannelMoved,
-		onChannelRemoved,
+		showRemoveFromFeed = false,
+		currentFeedId,
+		onChannelRemovedFromFeed,
 		scrollRestoreKey
 	}: Props = $props();
 
@@ -74,11 +70,9 @@
 					{video}
 					progress={progressMap[video.id]}
 					{showChannel}
-					{showMoveAction}
-					{showRemoveAction}
-					{availableFeeds}
-					{onChannelMoved}
-					{onChannelRemoved}
+					{showRemoveFromFeed}
+					{currentFeedId}
+					onChannelRemovedFromFeed={() => onChannelRemovedFromFeed?.(video.channel_id)}
 					onVideoClick={() => handleVideoClick(video.id)}
 				/>
 			</div>

@@ -1,16 +1,14 @@
 <script lang="ts">
-	import type { Video, WatchProgress, Feed } from '$lib/types';
-	import { moveChannel, deleteChannel } from '$lib/api';
+	import type { Video, WatchProgress } from '$lib/types';
+	import { removeChannelFromFeed } from '$lib/api';
 
 	interface Props {
 		video: Video;
 		progress?: WatchProgress;
 		showChannel?: boolean;
-		showMoveAction?: boolean;
-		showRemoveAction?: boolean;
-		availableFeeds?: Feed[];
-		onChannelMoved?: () => void;
-		onChannelRemoved?: () => void;
+		showRemoveFromFeed?: boolean;
+		currentFeedId?: number;
+		onChannelRemovedFromFeed?: () => void;
 		onVideoClick?: () => void;
 	}
 
@@ -18,58 +16,41 @@
 		video,
 		progress,
 		showChannel = true,
-		showMoveAction = false,
-		showRemoveAction = false,
-		availableFeeds = [],
-		onChannelMoved,
-		onChannelRemoved,
+		showRemoveFromFeed = false,
+		currentFeedId,
+		onChannelRemovedFromFeed,
 		onVideoClick
 	}: Props = $props();
 
-	let showMoveDropdown = $state(false);
-	let moving = $state(false);
-	let removing = $state(false);
+	let showMenu = $state(false);
+	let removingFromFeed = $state(false);
 
-	async function handleMove(e: Event, feedId: number) {
+	async function handleRemoveFromFeed(e: Event) {
 		e.preventDefault();
 		e.stopPropagation();
-		moving = true;
-		try {
-			await moveChannel(video.channel_id, feedId);
-			showMoveDropdown = false;
-			onChannelMoved?.();
-		} catch (err) {
-			console.error('Failed to move channel:', err);
-			alert('Failed to move channel');
-		} finally {
-			moving = false;
-		}
-	}
+		if (!currentFeedId || removingFromFeed) return;
 
-	async function handleRemove(e: Event) {
-		e.preventDefault();
-		e.stopPropagation();
-		if (removing) return;
-		removing = true;
+		removingFromFeed = true;
 		try {
-			await deleteChannel(video.channel_id);
-			onChannelRemoved?.();
+			await removeChannelFromFeed(currentFeedId, video.channel_id);
+			showMenu = false;
+			onChannelRemovedFromFeed?.();
 		} catch (err) {
-			console.error('Failed to remove channel:', err);
+			console.error('Failed to remove channel from feed:', err);
 			alert('Failed to remove channel');
 		} finally {
-			removing = false;
+			removingFromFeed = false;
 		}
 	}
 
-	function toggleDropdown(e: Event) {
+	function toggleMenu(e: Event) {
 		e.preventDefault();
 		e.stopPropagation();
-		showMoveDropdown = !showMoveDropdown;
+		showMenu = !showMenu;
 	}
 
-	function closeDropdown() {
-		showMoveDropdown = false;
+	function closeMenu() {
+		showMenu = false;
 	}
 
 	function formatDuration(seconds: number): string {
@@ -108,7 +89,7 @@
 <article
 	class="group relative card overflow-hidden {isWatched ? 'opacity-50' : ''}"
 	data-video-id={video.id}
-	onmouseleave={closeDropdown}
+	onmouseleave={closeMenu}
 >
 	<!-- Thumbnail -->
 	<a href="/watch/{video.id}" class="block" onclick={onVideoClick}>
@@ -166,51 +147,54 @@
 		</div>
 	</div>
 
-	<!-- Action Buttons -->
-	{#if showRemoveAction}
+	<!-- Action Menu -->
+	{#if showRemoveFromFeed && currentFeedId}
 		<button
-			onclick={handleRemove}
-			disabled={removing}
-			class="absolute top-2 left-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-crimson-400 hover:bg-crimson-500/20 disabled:opacity-50 transition-all opacity-0 group-hover:opacity-100 z-20"
-			title="Remove channel from this feed"
+			onclick={toggleMenu}
+			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100 z-20"
+			title="More options"
 		>
-			{#if removing}
-				<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-				</svg>
-			{:else}
-				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M18 6L6 18M6 6l12 12"/>
-				</svg>
-			{/if}
-		</button>
-	{/if}
-
-	{#if showMoveAction && availableFeeds.length > 0}
-		<button
-			onclick={toggleDropdown}
-			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-emerald-400 hover:bg-emerald-500/20 transition-all opacity-0 group-hover:opacity-100 z-20"
-			title="Move channel to..."
-		>
-			<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-				<path d="M12 11v6M9 14l3-3 3 3"/>
+			<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+				<circle cx="12" cy="5" r="2"/>
+				<circle cx="12" cy="12" r="2"/>
+				<circle cx="12" cy="19" r="2"/>
 			</svg>
 		</button>
 
-		{#if showMoveDropdown}
-			<div class="dropdown top-12 right-2 z-30">
-				<div class="dropdown-header">Move to feed</div>
-				{#each availableFeeds as feed}
-					<button
-						onclick={(e) => handleMove(e, feed.id)}
-						disabled={moving}
-						class="dropdown-item"
-					>
-						{feed.name}
-					</button>
-				{/each}
+		{#if showMenu}
+			<div class="absolute top-12 right-2 w-56 bg-surface border border-white/10 rounded-lg shadow-xl z-30">
+				<a
+					href={video.url}
+					target="_blank"
+					rel="noopener"
+					class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors rounded-t-lg"
+					onclick={() => showMenu = false}
+				>
+					<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+						<polyline points="15 3 21 3 21 9"/>
+						<line x1="10" y1="14" x2="21" y2="3"/>
+					</svg>
+					Open in YouTube
+				</a>
+				<div class="border-t border-white/10"></div>
+				<button
+					onclick={handleRemoveFromFeed}
+					disabled={removingFromFeed}
+					class="flex items-center w-full px-4 py-2 text-sm text-crimson-400 hover:bg-crimson-500/10 transition-colors rounded-b-lg disabled:opacity-50"
+				>
+					{#if removingFromFeed}
+						<svg class="w-4 h-4 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+						</svg>
+					{:else}
+						<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M18 6L6 18M6 6l12 12"/>
+						</svg>
+					{/if}
+					Remove channel from feed
+				</button>
 			</div>
 		{/if}
 	{/if}
