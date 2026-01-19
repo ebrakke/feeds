@@ -11,6 +11,7 @@
 		showRemoveFromFeed?: boolean;
 		currentFeedId?: number;
 		onChannelRemovedFromFeed?: (channelId: number) => void;
+		onWatchedToggle?: (videoId: string, watched: boolean) => void;
 		scrollRestoreKey?: string;
 	}
 
@@ -21,6 +22,7 @@
 		showRemoveFromFeed = false,
 		currentFeedId,
 		onChannelRemovedFromFeed,
+		onWatchedToggle,
 		scrollRestoreKey
 	}: Props = $props();
 
@@ -73,6 +75,7 @@
 					{showRemoveFromFeed}
 					{currentFeedId}
 					onChannelRemovedFromFeed={() => onChannelRemovedFromFeed?.(video.channel_id)}
+					onWatchedToggle={onWatchedToggle}
 					onVideoClick={() => handleVideoClick(video.id)}
 				/>
 			</div>

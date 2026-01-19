@@ -266,6 +266,25 @@
 		// Remove from channels list
 		channels = channels.filter(c => c.id !== channelId);
 	}
+
+	function handleWatchedToggle(videoId: string, watched: boolean) {
+		if (watched) {
+			// Mark as watched - set progress to 100/100
+			progressMap = {
+				...progressMap,
+				[videoId]: {
+					video_id: videoId,
+					progress_seconds: 100,
+					duration_seconds: 100,
+					watched_at: new Date().toISOString()
+				}
+			};
+		} else {
+			// Mark as unwatched - remove from progress map
+			const { [videoId]: _, ...rest } = progressMap;
+			progressMap = rest;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -436,6 +455,7 @@
 					showRemoveFromFeed={true}
 					currentFeedId={feed?.id}
 					onChannelRemovedFromFeed={handleChannelRemovedFromFeed}
+					onWatchedToggle={handleWatchedToggle}
 					{scrollRestoreKey}
 				/>
 			{/if}
@@ -447,6 +467,7 @@
 				showRemoveFromFeed={true}
 				currentFeedId={feed?.id}
 				onChannelRemovedFromFeed={handleChannelRemovedFromFeed}
+				onWatchedToggle={handleWatchedToggle}
 				scrollRestoreKey={`${scrollRestoreKey}-shorts`}
 			/>
 		{:else if activeTab === 'shuffle'}
@@ -479,8 +500,9 @@
 				</div>
 				<VideoGrid
 					videos={shuffledVideos}
-					progressMap={{}}
+					{progressMap}
 					showRemoveFromFeed={false}
+					onWatchedToggle={handleWatchedToggle}
 					scrollRestoreKey={`${scrollRestoreKey}-shuffle`}
 				/>
 			{/if}

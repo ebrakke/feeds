@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Video, WatchProgress } from '$lib/types';
-	import { removeChannelFromFeed } from '$lib/api';
+	import { removeChannelFromFeed, markWatched, markUnwatched } from '$lib/api';
 
 	interface Props {
 		video: Video;
@@ -10,6 +10,7 @@
 		currentFeedId?: number;
 		onChannelRemovedFromFeed?: () => void;
 		onVideoClick?: () => void;
+		onWatchedToggle?: (videoId: string, watched: boolean) => void;
 	}
 
 	let {
@@ -19,11 +20,13 @@
 		showRemoveFromFeed = false,
 		currentFeedId,
 		onChannelRemovedFromFeed,
-		onVideoClick
+		onVideoClick,
+		onWatchedToggle
 	}: Props = $props();
 
 	let showMenu = $state(false);
 	let removingFromFeed = $state(false);
+	let togglingWatched = $state(false);
 
 	async function handleRemoveFromFeed(e: Event) {
 		e.preventDefault();
@@ -40,6 +43,29 @@
 			alert('Failed to remove channel');
 		} finally {
 			removingFromFeed = false;
+		}
+	}
+
+	async function handleToggleWatched(e: Event) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (togglingWatched) return;
+
+		togglingWatched = true;
+		try {
+			if (isWatched) {
+				await markUnwatched(video.id);
+				onWatchedToggle?.(video.id, false);
+			} else {
+				await markWatched(video.id);
+				onWatchedToggle?.(video.id, true);
+			}
+			showMenu = false;
+		} catch (err) {
+			console.error('Failed to toggle watched status:', err);
+			alert('Failed to update watched status');
+		} finally {
+			togglingWatched = false;
 		}
 	}
 
@@ -148,35 +174,60 @@
 	</div>
 
 	<!-- Action Menu -->
-	{#if showRemoveFromFeed && currentFeedId}
-		<button
-			onclick={toggleMenu}
-			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all sm:opacity-0 sm:group-hover:opacity-100 z-30"
-			title="More options"
-		>
-			<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-				<circle cx="12" cy="5" r="2"/>
-				<circle cx="12" cy="12" r="2"/>
-				<circle cx="12" cy="19" r="2"/>
-			</svg>
-		</button>
+	<button
+		onclick={toggleMenu}
+		class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all sm:opacity-0 sm:group-hover:opacity-100 z-30"
+		title="More options"
+	>
+		<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+			<circle cx="12" cy="5" r="2"/>
+			<circle cx="12" cy="12" r="2"/>
+			<circle cx="12" cy="19" r="2"/>
+		</svg>
+	</button>
 
-		{#if showMenu}
-			<div class="absolute top-12 right-2 w-56 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
-				<a
-					href={video.url}
-					target="_blank"
-					rel="noopener"
-					class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors rounded-t-lg"
-					onclick={() => showMenu = false}
-				>
-					<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-						<polyline points="15 3 21 3 21 9"/>
-						<line x1="10" y1="14" x2="21" y2="3"/>
+	{#if showMenu}
+		<div class="absolute top-12 right-2 w-56 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
+			<a
+				href={video.url}
+				target="_blank"
+				rel="noopener"
+				class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors rounded-t-lg"
+				onclick={() => showMenu = false}
+			>
+				<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+					<polyline points="15 3 21 3 21 9"/>
+					<line x1="10" y1="14" x2="21" y2="3"/>
+				</svg>
+				Open in YouTube
+			</a>
+			<div class="border-t border-white/10"></div>
+			<button
+				onclick={handleToggleWatched}
+				disabled={togglingWatched}
+				class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors {showRemoveFromFeed && currentFeedId ? '' : 'rounded-b-lg'} disabled:opacity-50"
+			>
+				{#if togglingWatched}
+					<svg class="w-4 h-4 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
 					</svg>
-					Open in YouTube
-				</a>
+				{:else if isWatched}
+					<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+						<circle cx="12" cy="12" r="3"/>
+						<line x1="1" y1="1" x2="23" y2="23"/>
+					</svg>
+				{:else}
+					<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+						<circle cx="12" cy="12" r="3"/>
+					</svg>
+				{/if}
+				{isWatched ? 'Mark as unwatched' : 'Mark as watched'}
+			</button>
+			{#if showRemoveFromFeed && currentFeedId}
 				<div class="border-t border-white/10"></div>
 				<button
 					onclick={handleRemoveFromFeed}
@@ -195,7 +246,7 @@
 					{/if}
 					Remove channel from feed
 				</button>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	{/if}
 </article>

@@ -97,6 +97,23 @@
 			showAddDropdown = false;
 		}
 	}
+
+	function handleWatchedToggle(videoId: string, watched: boolean) {
+		if (watched) {
+			progressMap = {
+				...progressMap,
+				[videoId]: {
+					video_id: videoId,
+					progress_seconds: 100,
+					duration_seconds: 100,
+					watched_at: new Date().toISOString()
+				}
+			};
+		} else {
+			const { [videoId]: _, ...rest } = progressMap;
+			progressMap = rest;
+		}
+	}
 </script>
 
 <svelte:window onclick={handleClickOutside} />
@@ -251,7 +268,7 @@
 		</div>
 	{:else}
 		<div class="animate-fade-up stagger-1" style="opacity: 0;">
-			<VideoGrid {videos} {progressMap} showChannel={false} {scrollRestoreKey} />
+			<VideoGrid {videos} {progressMap} showChannel={false} onWatchedToggle={handleWatchedToggle} {scrollRestoreKey} />
 		</div>
 	{/if}
 {/if}
