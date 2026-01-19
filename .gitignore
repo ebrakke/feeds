@@ -57,3 +57,4 @@ web/frontend/test-results/
 
 # Claude settings
 .claude/
+.playwright-mcp/

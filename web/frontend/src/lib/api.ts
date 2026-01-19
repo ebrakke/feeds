@@ -219,15 +219,6 @@ export async function importWatchHistory(file: File): Promise<{
 	return res.json();
 }
 
-export async function organizeWatchHistory(channels: WatchHistoryChannel[]): Promise<{
-	groups: GroupSuggestion[];
-}> {
-	return fetchJSON('/import/watch-history/organize', {
-		method: 'POST',
-		body: JSON.stringify({ channels })
-	});
-}
-
 export async function confirmOrganize(
 	groups: { name: string; channels: string[] }[],
 	channelNames: Record<string, string>

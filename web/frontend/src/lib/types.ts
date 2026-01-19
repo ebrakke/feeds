@@ -42,7 +42,6 @@ export interface WatchProgress {
 }
 
 export interface Config {
-	aiEnabled: boolean;
 	ytdlpCookiesConfigured: boolean;
 }
 

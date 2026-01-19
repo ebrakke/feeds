@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/db"
 	"github.com/erik/feeds/internal/models"
 	"github.com/erik/feeds/internal/sponsorblock"
@@ -22,10 +21,9 @@ import (
 )
 
 type Server struct {
-	db              *db.DB
-	ytdlp           *ytdlp.YTDLP
-	ai              *ai.Client
-	sponsorblock    *sponsorblock.Client
+	db           *db.DB
+	ytdlp        *ytdlp.YTDLP
+	sponsorblock *sponsorblock.Client
 	templates       *template.Template
 	packs           fs.FS
 	videoCache      *VideoCache
@@ -46,7 +44,7 @@ type streamCacheEntry struct {
 	expiresAt  time.Time
 }
 
-func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesFS fs.FS, packsFS fs.FS) (*Server, error) {
+func NewServer(database *db.DB, yt *ytdlp.YTDLP, templatesFS fs.FS, packsFS fs.FS) (*Server, error) {
 	funcMap := template.FuncMap{
 		"div": func(a, b int) int { return a / b },
 		"mod": func(a, b int) int { return a % b },
@@ -68,7 +66,6 @@ func NewServer(database *db.DB, yt *ytdlp.YTDLP, aiClient *ai.Client, templatesF
 	return &Server{
 		db:              database,
 		ytdlp:           yt,
-		ai:              aiClient,
 		sponsorblock:    sponsorblock.NewClient(),
 		templates:       tmpl,
 		packs:           packsFS,
@@ -96,7 +93,6 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /legacy/import", s.handleImport)
 	mux.HandleFunc("POST /legacy/import/url", s.handleImportURL)
 	mux.HandleFunc("POST /legacy/import/file", s.handleImportFile)
-	mux.HandleFunc("POST /legacy/import/organize", s.handleOrganize)
 	mux.HandleFunc("POST /legacy/import/confirm", s.handleConfirmOrganize)
 	mux.HandleFunc("GET /legacy/feeds/{id}", s.handleFeedPage)
 	mux.HandleFunc("GET /legacy/channels/{id}", s.handleChannelPage)
@@ -137,10 +133,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /api/import/url", s.handleAPIImportURL)
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
-	mux.HandleFunc("POST /api/import/organize", s.handleAPIOrganize)
 	mux.HandleFunc("POST /api/import/confirm", s.handleAPIConfirmOrganize)
 	mux.HandleFunc("POST /api/import/watch-history", s.handleAPIImportWatchHistory)
-	mux.HandleFunc("POST /api/import/watch-history/organize", s.handleAPIOrganizeWatchHistory)
 
 	mux.HandleFunc("GET /api/packs", s.handlePacksList)
 	mux.HandleFunc("GET /api/packs/{name}", s.handlePackFile)
@@ -190,8 +184,7 @@ func (s *Server) handleAllRecent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleImportPage(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
-		"Title":     "Import Feed",
-		"AIEnabled": s.ai != nil,
+		"Title": "Import Feed",
 	}
 	s.templates.ExecuteTemplate(w, "import", data)
 }
@@ -253,9 +246,8 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderImportError(w http.ResponseWriter, errMsg string) {
 	data := map[string]any{
-		"Title":     "Import Feed",
-		"Error":     errMsg,
-		"AIEnabled": s.ai != nil,
+		"Title": "Import Feed",
+		"Error": errMsg,
 	}
 	s.templates.ExecuteTemplate(w, "import", data)
 }
@@ -1365,139 +1357,6 @@ func (s *Server) handleMoveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(originalFeedID, 10)+"?tab=channels", http.StatusSeeOther)
-}
-
-// handleOrganize uses AI to suggest groups for subscriptions
-func (s *Server) handleOrganize(w http.ResponseWriter, r *http.Request) {
-	if s.ai == nil {
-		s.renderImportError(w, "AI grouping not available - set OPENAI_API_KEY")
-		return
-	}
-
-	if err := r.ParseForm(); err != nil {
-		s.renderImportError(w, "Failed to parse form")
-		return
-	}
-
-	jsonData := r.FormValue("json")
-	if jsonData == "" {
-		s.renderImportError(w, "JSON data is required")
-		return
-	}
-
-	var export models.NewPipeExport
-	if err := json.Unmarshal([]byte(jsonData), &export); err != nil {
-		s.renderImportError(w, "Invalid NewPipe JSON format: "+err.Error())
-		return
-	}
-
-	// Filter to YouTube only
-	var subs []models.NewPipeSubscription
-	for _, sub := range export.Subscriptions {
-		if sub.ServiceID == 0 {
-			subs = append(subs, sub)
-		}
-	}
-
-	if len(subs) == 0 {
-		s.renderImportError(w, "No YouTube subscriptions found")
-		return
-	}
-
-	// Fetch metadata (recent video titles) for each channel concurrently
-	log.Printf("Fetching metadata for %d channels...", len(subs))
-	metadata := s.fetchChannelMetadata(subs)
-	log.Printf("Fetched metadata for %d channels", len(metadata))
-
-	// Call AI to suggest groups with metadata
-	suggestions, err := s.ai.SuggestGroupsWithMetadata(subs, metadata)
-	if err != nil {
-		log.Printf("AI grouping failed: %v", err)
-		s.renderImportError(w, "AI grouping failed: "+err.Error())
-		return
-	}
-
-	data := map[string]any{
-		"Title":       "Review Groups",
-		"Suggestions": suggestions,
-	}
-	s.templates.ExecuteTemplate(w, "organize", data)
-}
-
-// fetchChannelMetadata fetches recent video titles for channels to help AI categorization
-// Uses cached data from DB when available, only fetches missing channels
-func (s *Server) fetchChannelMetadata(subs []models.NewPipeSubscription) map[string]ai.ChannelInfo {
-	metadata := make(map[string]ai.ChannelInfo)
-
-	// Load cached metadata from DB
-	cached, err := s.db.GetAllChannelMetadata()
-	if err != nil {
-		log.Printf("Failed to load cached metadata: %v", err)
-		cached = make(map[string]*db.ChannelMetadata)
-	}
-
-	// Identify channels that need fetching
-	var toFetch []models.NewPipeSubscription
-	for _, sub := range subs {
-		if cm, ok := cached[sub.URL]; ok {
-			// Use cached data
-			titles := strings.Split(cm.VideoTitles, "|||")
-			metadata[sub.URL] = ai.ChannelInfo{
-				Name:        sub.Name,
-				URL:         sub.URL,
-				VideoTitles: titles,
-			}
-		} else {
-			toFetch = append(toFetch, sub)
-		}
-	}
-
-	log.Printf("Using %d cached, fetching %d new channels", len(subs)-len(toFetch), len(toFetch))
-
-	if len(toFetch) == 0 {
-		return metadata
-	}
-
-	// Fetch missing channels concurrently
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 20) // Limit concurrent requests
-
-	for _, sub := range toFetch {
-		wg.Add(1)
-		go func(sub models.NewPipeSubscription) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			videos, err := youtube.FetchLatestVideos(sub.URL, 3)
-			if err != nil {
-				log.Printf("Failed to fetch videos for %s: %v", sub.Name, err)
-				return
-			}
-
-			var titles []string
-			for _, v := range videos {
-				titles = append(titles, v.Title)
-			}
-
-			// Cache to DB
-			if err := s.db.UpsertChannelMetadata(sub.URL, sub.Name, strings.Join(titles, "|||")); err != nil {
-				log.Printf("Failed to cache metadata for %s: %v", sub.Name, err)
-			}
-
-			mu.Lock()
-			metadata[sub.URL] = ai.ChannelInfo{
-				Name:        sub.Name,
-				URL:         sub.URL,
-				VideoTitles: titles,
-			}
-			mu.Unlock()
-		}(sub)
-	}
-
-	wg.Wait()
-	return metadata
 }
 
 // handleConfirmOrganize creates feeds from the confirmed groups

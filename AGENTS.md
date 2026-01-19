@@ -67,6 +67,9 @@ make playwright-install
 ### Running Tests
 
 ```bash
+# Run smoke tests (quick verification after major changes)
+make smoke
+
 # Run all e2e tests
 make e2e
 
@@ -76,6 +79,17 @@ make e2e-ui
 # Capture mobile screenshots for UI review
 make e2e-screenshots
 ```
+
+### Smoke Tests
+
+**Always run `make smoke` after major changes** to verify core functionality works:
+
+- Home page and navigation
+- Feed pages load
+- API endpoints respond correctly
+- Import page works (without AI)
+
+The smoke tests run in ~10 seconds and catch obvious regressions.
 
 ### Screenshot Capture
 

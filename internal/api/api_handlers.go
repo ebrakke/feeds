@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/db"
 	"github.com/erik/feeds/internal/models"
 	yt "github.com/erik/feeds/internal/youtube"
@@ -36,7 +35,6 @@ func jsonError(w http.ResponseWriter, message string, status int) {
 
 func (s *Server) handleAPIConfig(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]any{
-		"aiEnabled":              s.ai != nil,
 		"ytdlpCookiesConfigured": s.ytdlpCookiesConfigured(),
 	})
 }
@@ -757,52 +755,6 @@ func (e *importError) Error() string {
 	return e.message
 }
 
-// AI organize endpoints
-
-func (s *Server) handleAPIOrganize(w http.ResponseWriter, r *http.Request) {
-	if s.ai == nil {
-		jsonError(w, "AI organization is not enabled", http.StatusBadRequest)
-		return
-	}
-
-	var req struct {
-		Channels []struct {
-			URL  string `json:"url"`
-			Name string `json:"name"`
-		} `json:"channels"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(req.Channels) == 0 {
-		jsonError(w, "No channels to organize", http.StatusBadRequest)
-		return
-	}
-
-	// Convert to NewPipeSubscription format for AI
-	var subs []models.NewPipeSubscription
-	for _, ch := range req.Channels {
-		subs = append(subs, models.NewPipeSubscription{
-			ServiceID: 0,
-			URL:       ch.URL,
-			Name:      ch.Name,
-		})
-	}
-
-	// Call AI to organize (without metadata for simplicity)
-	groups, err := s.ai.SuggestGroups(subs)
-	if err != nil {
-		jsonError(w, "AI organization failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	jsonResponse(w, map[string]any{
-		"groups": groups,
-	})
-}
-
 func (s *Server) handleAPIConfirmOrganize(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Groups []struct {
@@ -878,54 +830,6 @@ func (s *Server) handleAPIImportWatchHistory(w http.ResponseWriter, r *http.Requ
 	jsonResponse(w, map[string]any{
 		"channels":    channels,
 		"totalVideos": totalVideos,
-	})
-}
-
-func (s *Server) handleAPIOrganizeWatchHistory(w http.ResponseWriter, r *http.Request) {
-	if s.ai == nil {
-		jsonError(w, "AI organization is not enabled", http.StatusBadRequest)
-		return
-	}
-
-	var req struct {
-		Channels []models.WatchHistoryChannel `json:"channels"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(req.Channels) == 0 {
-		jsonError(w, "No channels to organize", http.StatusBadRequest)
-		return
-	}
-
-	// Convert to NewPipeSubscription format and build metadata with watch counts
-	var subs []models.NewPipeSubscription
-	metadata := make(map[string]ai.ChannelInfo)
-
-	for _, ch := range req.Channels {
-		subs = append(subs, models.NewPipeSubscription{
-			ServiceID: 0,
-			URL:       ch.URL,
-			Name:      ch.Name,
-		})
-		metadata[ch.URL] = ai.ChannelInfo{
-			Name:       ch.Name,
-			URL:        ch.URL,
-			WatchCount: ch.WatchCount,
-		}
-	}
-
-	// Call AI with watch count metadata
-	groups, err := s.ai.SuggestGroupsWithMetadata(subs, metadata)
-	if err != nil {
-		jsonError(w, "AI organization failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	jsonResponse(w, map[string]any{
-		"groups": groups,
 	})
 }
 

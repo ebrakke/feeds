@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/erik/feeds/internal/ai"
 	"github.com/erik/feeds/internal/api"
 	"github.com/erik/feeds/internal/db"
 	"github.com/erik/feeds/internal/ytdlp"
@@ -102,7 +101,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  FEEDS_DB          Database path (default feeds.db)\n")
 		fmt.Fprintf(os.Stderr, "  FEEDS_YTDLP       Path to yt-dlp binary (default yt-dlp)\n")
 		fmt.Fprintf(os.Stderr, "  FEEDS_YTDLP_COOKIES  Path to yt-dlp cookies.txt (optional)\n")
-		fmt.Fprintf(os.Stderr, "  OPENAI_API_KEY    Enable AI-powered subscription organization\n")
 	}
 
 	flag.Parse()
@@ -130,16 +128,7 @@ func main() {
 		log.Printf("yt-dlp version: %s", version)
 	}
 
-	// OpenAI client (optional - for AI grouping)
-	var aiClient *ai.Client
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		aiClient = ai.New(key)
-		log.Println("OpenAI API key found - AI grouping enabled")
-	} else {
-		log.Println("No OPENAI_API_KEY set - AI grouping disabled")
-	}
-
-	server, err := api.NewServer(database, yt, aiClient, web.Templates, web.Packs)
+	server, err := api.NewServer(database, yt, web.Templates, web.Packs)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

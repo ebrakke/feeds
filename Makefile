@@ -96,6 +96,10 @@ install:
 e2e:
 	cd web/frontend && bun run e2e
 
+.PHONY: smoke
+smoke:
+	cd web/frontend && bun run e2e:smoke
+
 .PHONY: e2e-ui
 e2e-ui:
 	cd web/frontend && bun run e2e:ui
@@ -128,7 +132,8 @@ help:
 	@echo ""
 	@echo "E2E testing (Playwright):"
 	@echo "  make playwright-install - Install Playwright browsers"
-	@echo "  make e2e                - Run Playwright tests"
+	@echo "  make smoke              - Run smoke tests (quick verification)"
+	@echo "  make e2e                - Run all Playwright tests"
 	@echo "  make e2e-ui             - Run Playwright tests with UI"
 	@echo "  make e2e-screenshots    - Capture mobile screenshots"
 	@echo ""
