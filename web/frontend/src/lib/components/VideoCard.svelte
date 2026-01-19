@@ -2,6 +2,7 @@
 	import type { Video, WatchProgress, Feed } from '$lib/types';
 	import { removeChannelFromFeed, markWatched, markUnwatched, getFeeds, getChannel, addChannelToFeed, createFeed } from '$lib/api';
 	import { toast } from '$lib/stores/toast';
+	import { bottomSheet } from '$lib/stores/bottomSheet';
 
 	interface Props {
 		video: Video;
@@ -95,9 +96,14 @@
 			);
 
 			if (isMobile) {
-				// Mobile: Use native prompt
-				loadingFeeds = false;
-				await handleMobileAddToFeed();
+				// Mobile: Show bottom sheet via store (rendered in layout)
+				showMenu = false;
+				bottomSheet.open({
+					title: 'Add to feed',
+					channelId: video.channel_id,
+					channelName: video.channel_name,
+					feeds: availableFeeds
+				});
 			} else {
 				// Desktop: Show submenu
 				showAddToFeedMenu = true;
@@ -108,60 +114,6 @@
 			showAddToFeedMenu = false;
 		} finally {
 			loadingFeeds = false;
-		}
-	}
-
-	async function handleMobileAddToFeed() {
-		// Build numbered list of options
-		const options = availableFeeds.map((f, i) => `${i + 1}. ${f.name}`);
-		options.push(`${availableFeeds.length + 1}. Create new feed`);
-
-		const choice = prompt(
-			`Add "${video.channel_name}" to feed:\n\n${options.join('\n')}\n\nEnter number:`
-		);
-
-		if (!choice?.trim()) {
-			showMenu = false;
-			return;
-		}
-
-		const num = parseInt(choice.trim(), 10);
-		if (isNaN(num) || num < 1 || num > options.length) {
-			toast.error('Invalid selection');
-			return;
-		}
-
-		if (num === options.length) {
-			// Create new feed
-			const name = prompt('Enter feed name:');
-			if (!name?.trim()) return;
-
-			addingToFeed = true;
-			try {
-				const newFeed = await createFeed(name.trim());
-				await addChannelToFeed(video.channel_id, newFeed.id);
-				toast.success(`Added to ${newFeed.name}`);
-				showMenu = false;
-			} catch (err) {
-				console.error('Failed to create feed:', err);
-				toast.error('Failed to create feed');
-			} finally {
-				addingToFeed = false;
-			}
-		} else {
-			// Add to existing feed
-			const feed = availableFeeds[num - 1];
-			addingToFeed = true;
-			try {
-				await addChannelToFeed(video.channel_id, feed.id);
-				toast.success(`Added to ${feed.name}`);
-				showMenu = false;
-			} catch (err) {
-				console.error('Failed to add to feed:', err);
-				toast.error('Failed to add to feed');
-			} finally {
-				addingToFeed = false;
-			}
 		}
 	}
 

@@ -194,6 +194,19 @@ a {
   }
 }
 
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s var(--ease-out-expo);
+}
+
 @keyframes pulse-glow {
   0%, 100% {
     box-shadow: 0 0 0 0 var(--color-emerald-glow);

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import Toast from '$lib/components/Toast.svelte';
+	import BottomSheet from '$lib/components/BottomSheet.svelte';
 
 	let { children } = $props();
 </script>
@@ -68,4 +69,5 @@
 		</div>
 	</footer>
 	<Toast />
+	<BottomSheet />
 </div>
