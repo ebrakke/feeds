@@ -113,7 +113,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/channels/{id}", s.handleAPIGetChannel)
 	mux.HandleFunc("POST /api/feeds/{id}/channels", s.handleAPIAddChannel)
 	mux.HandleFunc("DELETE /api/channels/{id}", s.handleAPIDeleteChannel)
-	mux.HandleFunc("POST /api/channels/{id}/move", s.handleAPIMoveChannel)
+	mux.HandleFunc("DELETE /api/feeds/{feedId}/channels/{channelId}", s.handleAPIRemoveChannelFromFeed)
+	mux.HandleFunc("POST /api/channels/{id}/feeds", s.handleAPIAddChannelToFeed)
 	mux.HandleFunc("POST /api/channels/{id}/refresh", s.handleAPIRefreshChannel)
 
 	mux.HandleFunc("GET /api/videos/recent", s.handleAPIGetRecentVideos)
@@ -979,23 +980,24 @@ func (s *Server) getChannelMemberships(channelURL string) []channelMembership {
 		return []channelMembership{}
 	}
 
-	channels, err := s.db.GetChannelsByURL(channelURL)
-	if err != nil || len(channels) == 0 {
+	channel, err := s.db.GetChannelByURL(channelURL)
+	if err != nil || channel == nil {
 		return []channelMembership{}
 	}
 
-	memberships := make([]channelMembership, 0, len(channels))
-	for _, ch := range channels {
-		feed, err := s.db.GetFeed(ch.FeedID)
-		if err != nil {
-			continue
-		}
+	feeds, err := s.db.GetFeedsByChannel(channel.ID)
+	if err != nil {
+		return []channelMembership{}
+	}
+
+	memberships := make([]channelMembership, 0, len(feeds))
+	for _, feed := range feeds {
 		name := feed.Name
 		if feed.IsSystem {
 			name = "Inbox"
 		}
 		memberships = append(memberships, channelMembership{
-			ChannelID: ch.ID,
+			ChannelID: channel.ID,
 			FeedID:    feed.ID,
 			FeedName:  name,
 		})
@@ -1252,11 +1254,13 @@ func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	feed, err := s.db.GetFeed(channel.FeedID)
-	if err != nil {
-		http.Error(w, "Feed not found", http.StatusNotFound)
+	// Get feeds this channel belongs to (pick first for legacy template)
+	feeds, err := s.db.GetFeedsByChannel(channelID)
+	if err != nil || len(feeds) == 0 {
+		http.Error(w, "Channel not in any feed", http.StatusNotFound)
 		return
 	}
+	feed := feeds[0]
 
 	videos, err := s.db.GetVideosByChannel(channelID, 50)
 	if err != nil {
@@ -1325,66 +1329,16 @@ func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get channel to know which feed to redirect to
-	channel, err := s.db.GetChannel(channelID)
-	if err != nil {
-		http.Error(w, "Channel not found", http.StatusNotFound)
-		return
-	}
-
-	feedID := channel.FeedID
-
 	if err := s.db.DeleteChannel(channelID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// For htmx, return empty response - element will be removed via hx-swap="delete"
 	if isHtmxRequest(r) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10)+"?tab=channels", http.StatusSeeOther)
-}
-
-func (s *Server) handleMoveChannel(w http.ResponseWriter, r *http.Request) {
-	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid channel ID", http.StatusBadRequest)
-		return
-	}
-
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
-		return
-	}
-
-	newFeedID, err := strconv.ParseInt(r.FormValue("feed_id"), 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid feed ID", http.StatusBadRequest)
-		return
-	}
-
-	// Get channel to know which feed to redirect to
-	channel, err := s.db.GetChannel(channelID)
-	if err != nil {
-		http.Error(w, "Channel not found", http.StatusNotFound)
-		return
-	}
-
-	originalFeedID := channel.FeedID
-
-	if err := s.db.MoveChannel(channelID, newFeedID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// For htmx, return empty response - element will be removed via hx-swap="delete"
-	if isHtmxRequest(r) {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(originalFeedID, 10)+"?tab=channels", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleConfirmOrganize creates feeds from the confirmed groups

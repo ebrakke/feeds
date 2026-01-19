@@ -409,6 +409,16 @@ func (s *Server) handleAPIGetChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get all feeds this channel belongs to
+	feeds, err := s.db.GetFeedsByChannel(id)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get all feeds for "add to feed" dropdown
+	allFeeds, _ := s.db.GetFeeds()
+
 	videoIDs := make([]string, len(videos))
 	for i, v := range videos {
 		videoIDs[i] = v.ID
@@ -419,6 +429,8 @@ func (s *Server) handleAPIGetChannel(w http.ResponseWriter, r *http.Request) {
 		"channel":     channel,
 		"videos":      videos,
 		"progressMap": progressMap,
+		"feeds":       feeds,
+		"allFeeds":    allFeeds,
 	})
 }
 
@@ -449,28 +461,29 @@ func (s *Server) handleAPIAddChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel, err := s.db.AddChannel(feedID, channelInfo.URL, channelInfo.Name)
+	channel, isNew, err := s.db.AddChannelToFeed(feedID, channelInfo.URL, channelInfo.Name)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Fetch initial videos
-	videos, err := yt.FetchLatestVideos(channelInfo.URL, 5)
-	if err == nil && len(videos) > 0 {
-		// Check shorts status before saving
-		videoIDs := make([]string, len(videos))
-		for i, v := range videos {
-			videoIDs[i] = v.ID
-		}
-		shortsStatus := yt.CheckShortsStatus(videoIDs)
-
-		for i := range videos {
-			videos[i].ChannelID = channel.ID
-			if isShort, ok := shortsStatus[videos[i].ID]; ok {
-				videos[i].IsShort = &isShort
+	// Fetch initial videos only if channel is new
+	if isNew {
+		videos, err := yt.FetchLatestVideos(channelInfo.URL, 5)
+		if err == nil && len(videos) > 0 {
+			videoIDs := make([]string, len(videos))
+			for i, v := range videos {
+				videoIDs[i] = v.ID
 			}
-			s.db.UpsertVideo(&videos[i])
+			shortsStatus := yt.CheckShortsStatus(videoIDs)
+
+			for i := range videos {
+				videos[i].ChannelID = channel.ID
+				if isShort, ok := shortsStatus[videos[i].ID]; ok {
+					videos[i].IsShort = &isShort
+				}
+				s.db.UpsertVideo(&videos[i])
+			}
 		}
 	}
 
@@ -493,8 +506,32 @@ func (s *Server) handleAPIDeleteChannel(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleAPIMoveChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+func (s *Server) handleAPIRemoveChannelFromFeed(w http.ResponseWriter, r *http.Request) {
+	feedID, err := strconv.ParseInt(r.PathValue("feedId"), 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	channelID, err := strconv.ParseInt(r.PathValue("channelId"), 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	deleted, err := s.db.RemoveChannelFromFeed(feedID, channelID)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]any{
+		"deleted": deleted,
+	})
+}
+
+func (s *Server) handleAPIAddChannelToFeed(w http.ResponseWriter, r *http.Request) {
+	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		jsonError(w, "Invalid channel ID", http.StatusBadRequest)
 		return
@@ -508,12 +545,26 @@ func (s *Server) handleAPIMoveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.db.MoveChannel(id, req.FeedID); err != nil {
+	// Get channel to get its URL
+	channel, err := s.db.GetChannel(channelID)
+	if err != nil {
+		jsonError(w, "Channel not found", http.StatusNotFound)
+		return
+	}
+
+	// Add to feed (reuses existing channel)
+	_, _, err = s.db.AddChannelToFeed(req.FeedID, channel.URL, channel.Name)
+	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	// Return updated feeds list
+	feeds, _ := s.db.GetFeedsByChannel(channelID)
+
+	jsonResponse(w, map[string]any{
+		"feeds": feeds,
+	})
 }
 
 func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request) {
