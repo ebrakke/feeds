@@ -91,6 +91,13 @@ dist:
 install:
 	go install $(LDFLAGS) ./cmd/server
 
+# Update and restart (for production servers running as systemd service)
+.PHONY: update
+update:
+	git pull
+	$(MAKE) build
+	sudo systemctl restart feeds
+
 # Playwright e2e testing
 .PHONY: e2e
 e2e:
@@ -129,6 +136,9 @@ help:
 	@echo ""
 	@echo "Local development:"
 	@echo "  make dev          - Run air (Go) + bun dev (frontend)"
+	@echo ""
+	@echo "Production deployment:"
+	@echo "  make update       - Pull, build, and restart systemd service"
 	@echo ""
 	@echo "E2E testing (Playwright):"
 	@echo "  make playwright-install - Install Playwright browsers"

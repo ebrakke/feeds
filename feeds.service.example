@@ -1,0 +1,41 @@
+# Example systemd service file for feeds
+# Copy to /etc/systemd/system/feeds.service and customize paths
+#
+# Setup:
+#   sudo cp feeds.service.example /etc/systemd/system/feeds.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable feeds
+#   sudo systemctl start feeds
+#
+# Logs:
+#   journalctl -u feeds -f
+
+[Unit]
+Description=Feeds - YouTube subscription manager
+After=network.target
+
+[Service]
+Type=simple
+User=feeds
+Group=feeds
+
+# Paths - adjust these to your setup
+WorkingDirectory=/opt/feeds
+ExecStart=/opt/feeds/feeds
+
+# Environment variables (optional)
+# Environment=PORT=8080
+# Environment=DB_PATH=/opt/feeds/data/feeds.db
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5
+
+# Security hardening (optional but recommended)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/feeds/data
+
+[Install]
+WantedBy=multi-user.target
