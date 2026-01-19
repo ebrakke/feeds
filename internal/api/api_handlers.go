@@ -208,6 +208,23 @@ func (s *Server) handleAPIGetFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check shorts status for any videos with null is_short
+	var uncheckedIDs []string
+	for _, v := range videos {
+		if v.IsShort == nil {
+			uncheckedIDs = append(uncheckedIDs, v.ID)
+		}
+	}
+	if len(uncheckedIDs) > 0 {
+		shortsStatus := yt.CheckShortsStatus(uncheckedIDs)
+		for i := range videos {
+			if isShort, ok := shortsStatus[videos[i].ID]; ok {
+				videos[i].IsShort = &isShort
+				s.db.UpdateVideoIsShort(videos[i].ID, isShort)
+			}
+		}
+	}
+
 	// Get watch progress for videos
 	videoIDs := make([]string, len(videos))
 	for i, v := range videos {
@@ -303,6 +320,7 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 	// Collect results
 	var totalVideos int
 	var errors []string
+	var allVideos []models.Video
 
 	for res := range results {
 		if res.err != nil {
@@ -312,8 +330,24 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 
 		for _, v := range res.videos {
 			v.ChannelID = res.chID
-			if err := s.db.UpsertVideo(&v); err != nil {
-				log.Printf("Failed to save video %s: %v", v.ID, err)
+			allVideos = append(allVideos, v)
+		}
+	}
+
+	// Check shorts status synchronously before saving
+	if len(allVideos) > 0 {
+		videoIDs := make([]string, len(allVideos))
+		for i, v := range allVideos {
+			videoIDs[i] = v.ID
+		}
+		shortsStatus := yt.CheckShortsStatus(videoIDs)
+
+		for i := range allVideos {
+			if isShort, ok := shortsStatus[allVideos[i].ID]; ok {
+				allVideos[i].IsShort = &isShort
+			}
+			if err := s.db.UpsertVideo(&allVideos[i]); err != nil {
+				log.Printf("Failed to save video %s: %v", allVideos[i].ID, err)
 				continue
 			}
 			totalVideos++
@@ -396,10 +430,20 @@ func (s *Server) handleAPIAddChannel(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch initial videos
 	videos, err := yt.FetchLatestVideos(channelInfo.URL, 5)
-	if err == nil {
-		for _, v := range videos {
-			v.ChannelID = channel.ID
-			s.db.UpsertVideo(&v)
+	if err == nil && len(videos) > 0 {
+		// Check shorts status before saving
+		videoIDs := make([]string, len(videos))
+		for i, v := range videos {
+			videoIDs[i] = v.ID
+		}
+		shortsStatus := yt.CheckShortsStatus(videoIDs)
+
+		for i := range videos {
+			videos[i].ChannelID = channel.ID
+			if isShort, ok := shortsStatus[videos[i].ID]; ok {
+				videos[i].IsShort = &isShort
+			}
+			s.db.UpsertVideo(&videos[i])
 		}
 	}
 
@@ -465,13 +509,25 @@ func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request)
 	}
 
 	var savedCount int
-	for _, v := range videos {
-		v.ChannelID = channel.ID
-		if err := s.db.UpsertVideo(&v); err != nil {
-			log.Printf("Failed to save video %s: %v", v.ID, err)
-			continue
+	if len(videos) > 0 {
+		// Check shorts status before saving
+		videoIDs := make([]string, len(videos))
+		for i, v := range videos {
+			videoIDs[i] = v.ID
 		}
-		savedCount++
+		shortsStatus := yt.CheckShortsStatus(videoIDs)
+
+		for i := range videos {
+			videos[i].ChannelID = channel.ID
+			if isShort, ok := shortsStatus[videos[i].ID]; ok {
+				videos[i].IsShort = &isShort
+			}
+			if err := s.db.UpsertVideo(&videos[i]); err != nil {
+				log.Printf("Failed to save video %s: %v", videos[i].ID, err)
+				continue
+			}
+			savedCount++
+		}
 	}
 
 	jsonResponse(w, map[string]any{

@@ -533,7 +533,7 @@ func (s *Server) handleRefreshFeed(w http.ResponseWriter, r *http.Request) {
 	// Fetch videos via RSS - fast and no rate limiting
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var totalVideos int
+	var allVideos []models.Video
 	semaphore := make(chan struct{}, 20) // RSS is lightweight, can do more concurrent
 
 	for _, ch := range channels {
@@ -552,25 +552,40 @@ func (s *Server) handleRefreshFeed(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Fetched %d videos from %s", len(videos), channel.Name)
 
 			mu.Lock()
-			defer mu.Unlock()
-
-			for _, v := range videos {
-				v.ChannelID = channel.ID
-				if err := s.db.UpsertVideo(&v); err != nil {
-					log.Printf("Failed to save video %s: %v", v.ID, err)
-					continue
-				}
-				totalVideos++
+			for i := range videos {
+				videos[i].ChannelID = channel.ID
+				allVideos = append(allVideos, videos[i])
 			}
+			mu.Unlock()
 		}(ch)
 	}
 
 	wg.Wait()
+
+	// Check shorts status synchronously before saving
+	var totalVideos int
+	if len(allVideos) > 0 {
+		videoIDs := make([]string, len(allVideos))
+		for i, v := range allVideos {
+			videoIDs[i] = v.ID
+		}
+		shortsStatus := youtube.CheckShortsStatus(videoIDs)
+
+		for i := range allVideos {
+			if isShort, ok := shortsStatus[allVideos[i].ID]; ok {
+				allVideos[i].IsShort = &isShort
+			}
+			if err := s.db.UpsertVideo(&allVideos[i]); err != nil {
+				log.Printf("Failed to save video %s: %v", allVideos[i].ID, err)
+				continue
+			}
+			totalVideos++
+		}
+	}
 	log.Printf("Refresh complete: %d total videos saved", totalVideos)
 
-	// Fetch durations and shorts status in background
+	// Fetch durations in background (shorts status is checked synchronously now)
 	go s.fetchMissingDurations(feedID)
-	go s.fetchMissingShortsStatus(feedID)
 
 	// Redirect back to feed page
 	http.Redirect(w, r, "/feeds/"+strconv.FormatInt(feedID, 10), http.StatusSeeOther)
@@ -679,21 +694,31 @@ func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 
-		for _, v := range res.videos {
-			v.ChannelID = res.chID
-			if err := s.db.UpsertVideo(&v); err != nil {
-				log.Printf("Failed to save video %s: %v", v.ID, err)
-				continue
+		if len(res.videos) > 0 {
+			// Check shorts status synchronously before saving
+			videoIDs := make([]string, len(res.videos))
+			for i, v := range res.videos {
+				videoIDs[i] = v.ID
 			}
-			totalVideos++
+			shortsStatus := youtube.CheckShortsStatus(videoIDs)
+
+			for i := range res.videos {
+				res.videos[i].ChannelID = res.chID
+				if isShort, ok := shortsStatus[res.videos[i].ID]; ok {
+					res.videos[i].IsShort = &isShort
+				}
+				if err := s.db.UpsertVideo(&res.videos[i]); err != nil {
+					log.Printf("Failed to save video %s: %v", res.videos[i].ID, err)
+					continue
+				}
+				totalVideos++
+			}
 		}
 	}
 
 	// Fetch durations for videos that don't have them (in background)
+	// Note: shorts status is checked synchronously now
 	go s.fetchMissingDurations(feedID)
-
-	// Check shorts status for videos that don't have it (in background)
-	go s.fetchMissingShortsStatus(feedID)
 
 	// Send completion event
 	complete := map[string]any{
