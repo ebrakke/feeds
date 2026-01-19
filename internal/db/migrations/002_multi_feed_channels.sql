@@ -35,6 +35,9 @@ SELECT c.id AS old_id, cn.id AS new_id
 FROM channels c
 JOIN channels_new cn ON cn.url = c.url;
 
+-- Delete orphaned videos (videos with channel_id that doesn't exist in channels table)
+DELETE FROM videos WHERE channel_id NOT IN (SELECT id FROM channels);
+
 -- Migrate: update video references to new channel IDs
 UPDATE videos SET channel_id = (
     SELECT new_id FROM channel_id_map WHERE old_id = videos.channel_id

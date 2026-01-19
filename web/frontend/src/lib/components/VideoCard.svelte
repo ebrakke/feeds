@@ -151,7 +151,7 @@
 	{#if showRemoveFromFeed && currentFeedId}
 		<button
 			onclick={toggleMenu}
-			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100 z-20"
+			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100 z-30"
 			title="More options"
 		>
 			<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -162,7 +162,7 @@
 		</button>
 
 		{#if showMenu}
-			<div class="absolute top-12 right-2 w-56 bg-surface border border-white/10 rounded-lg shadow-xl z-30">
+			<div class="absolute top-12 right-2 w-56 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
 				<a
 					href={video.url}
 					target="_blank"

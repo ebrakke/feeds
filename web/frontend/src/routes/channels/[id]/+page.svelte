@@ -221,7 +221,7 @@
 				</button>
 
 				{#if showAddDropdown && availableFeeds.length > 0}
-					<div class="absolute top-full left-0 mt-1 w-48 bg-surface border border-white/10 rounded-lg shadow-xl z-20">
+					<div class="absolute top-full left-0 mt-1 w-48 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
 						{#each availableFeeds as feed (feed.id)}
 							<button
 								onclick={() => handleAddToFeed(feed.id)}
