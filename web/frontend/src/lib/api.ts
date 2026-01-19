@@ -71,6 +71,15 @@ export async function refreshFeed(id: number): Promise<{
 	return fetchJSON(`/feeds/${id}/refresh`, { method: 'POST' });
 }
 
+export async function getShuffledVideos(id: number, limit = 100, offset = 0): Promise<{
+	videos: Video[];
+	total: number;
+	offset: number;
+	limit: number;
+}> {
+	return fetchJSON(`/feeds/${id}/shuffle?limit=${limit}&offset=${offset}`);
+}
+
 // Channels
 export async function getChannel(id: number): Promise<{
 	channel: Channel;

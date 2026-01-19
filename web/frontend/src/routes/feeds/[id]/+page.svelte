@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { getFeed, deleteFeed, deleteChannel } from '$lib/api';
+	import { getFeed, deleteFeed, deleteChannel, getShuffledVideos } from '$lib/api';
 	import type { Feed, Channel, Video, WatchProgress } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
 
@@ -19,8 +19,12 @@
 	let error = $state<string | null>(null);
 	let refreshing = $state(false);
 	let refreshProgress = $state<{ current: number; total: number; channel: string } | null>(null);
-	let activeTab = $state<'videos' | 'shorts' | 'channels'>('videos');
+	let activeTab = $state<'videos' | 'shorts' | 'shuffle' | 'channels'>('videos');
 	let selectedChannels = $state<Set<number>>(new Set());
+	let shuffledVideos = $state<Video[]>([]);
+	let shuffleTotal = $state(0);
+	let shuffleLoading = $state(false);
+	let shuffleLoaded = $state(false);
 	let total = $state(0);
 	let hideWatched = $state(false);
 
@@ -91,6 +95,34 @@
 			error = e instanceof Error ? e.message : 'Failed to load more videos';
 		} finally {
 			loadingMore = false;
+		}
+	}
+
+	async function loadShuffledVideos() {
+		if (shuffleLoading) return;
+
+		shuffleLoading = true;
+		try {
+			const data = await getShuffledVideos(id, PAGE_SIZE, 0);
+			shuffledVideos = data.videos || [];
+			shuffleTotal = data.total || 0;
+			shuffleLoaded = true;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load shuffled videos';
+		} finally {
+			shuffleLoading = false;
+		}
+	}
+
+	async function reshuffle() {
+		shuffleLoaded = false;
+		await loadShuffledVideos();
+	}
+
+	function switchTab(tab: typeof activeTab) {
+		activeTab = tab;
+		if (tab === 'shuffle' && !shuffleLoaded && !shuffleLoading) {
+			loadShuffledVideos();
 		}
 	}
 
@@ -327,7 +359,7 @@
 	<!-- Tabs - horizontally scrollable on mobile -->
 	<nav class="flex gap-4 sm:gap-6 border-b border-border-subtle mb-4 sm:mb-6 -mx-4 px-4 sm:mx-0 sm:px-0 overflow-x-auto scrollbar-none animate-fade-up stagger-1" style="opacity: 0;">
 		<button
-			onclick={() => activeTab = 'videos'}
+			onclick={() => switchTab('videos')}
 			class="tab {activeTab === 'videos' ? 'active' : ''}"
 		>
 			Videos
@@ -337,7 +369,7 @@
 		</button>
 		{#if shortsVideos.length > 0}
 			<button
-				onclick={() => activeTab = 'shorts'}
+				onclick={() => switchTab('shorts')}
 				class="tab {activeTab === 'shorts' ? 'active' : ''}"
 			>
 				Shorts
@@ -347,7 +379,16 @@
 			</button>
 		{/if}
 		<button
-			onclick={() => activeTab = 'channels'}
+			onclick={() => switchTab('shuffle')}
+			class="tab {activeTab === 'shuffle' ? 'active' : ''}"
+		>
+			Shuffle
+			{#if shuffleLoaded}
+				<span class="ml-1 text-text-dim">({shuffleTotal})</span>
+			{/if}
+		</button>
+		<button
+			onclick={() => switchTab('channels')}
 			class="tab {activeTab === 'channels' ? 'active' : ''}"
 		>
 			Channels
@@ -408,6 +449,43 @@
 				onChannelRemoved={loadFeed}
 				scrollRestoreKey={`${scrollRestoreKey}-shorts`}
 			/>
+		{:else if activeTab === 'shuffle'}
+			{#if shuffleLoading}
+				<div class="flex flex-col items-center justify-center py-20">
+					<div class="w-12 h-12 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin mb-4"></div>
+					<p class="text-text-muted font-display">Shuffling videos...</p>
+				</div>
+			{:else if shuffledVideos.length === 0}
+				<div class="empty-state">
+					<div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-surface flex items-center justify-center">
+						<svg class="w-8 h-8 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+							<path d="M16 3h5v5M4 20L20.2 3.8M21 16v5h-5M15 15l5.1 5.1M4 4l5 5"/>
+						</svg>
+					</div>
+					<h3 class="empty-state-title">No unwatched videos</h3>
+					<p class="empty-state-text">Watch some videos to clear the deck, or check back after a refresh</p>
+				</div>
+			{:else}
+				<div class="flex justify-end mb-4">
+					<button
+						onclick={reshuffle}
+						class="btn btn-secondary btn-sm"
+					>
+						<svg class="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M16 3h5v5M4 20L20.2 3.8M21 16v5h-5M15 15l5.1 5.1M4 4l5 5"/>
+						</svg>
+						Reshuffle
+					</button>
+				</div>
+				<VideoGrid
+					videos={shuffledVideos}
+					progressMap={{}}
+					showMoveAction={false}
+					showRemoveAction={false}
+					availableFeeds={[]}
+					scrollRestoreKey={`${scrollRestoreKey}-shuffle`}
+				/>
+			{/if}
 		{:else if activeTab === 'channels'}
 			{#if channels.length > 0}
 				<!-- Bulk Actions -->

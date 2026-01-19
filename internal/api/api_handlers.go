@@ -601,6 +601,41 @@ func (s *Server) handleAPIGetRecentVideos(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (s *Server) handleAPIGetShuffledVideos(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid feed ID", http.StatusBadRequest)
+		return
+	}
+
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	videos, total, err := s.db.GetShuffledVideosByFeed(id, limit, offset)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]any{
+		"videos": videos,
+		"total":  total,
+		"offset": offset,
+		"limit":  limit,
+	})
+}
+
 func (s *Server) handleAPIGetHistory(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if l := r.URL.Query().Get("limit"); l != "" {

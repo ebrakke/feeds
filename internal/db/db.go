@@ -824,6 +824,52 @@ func (db *DB) MarkSponsorBlockFetched(videoID string) error {
 	return err
 }
 
+// GetShuffledVideosByFeed returns unwatched, non-short videos in random order
+func (db *DB) GetShuffledVideosByFeed(feedID int64, limit, offset int) ([]models.Video, int, error) {
+	// Get total count of unwatched, non-short videos
+	var total int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*)
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.feed_id = ?
+		  AND (v.is_short IS NULL OR v.is_short = 0)
+		  AND v.id NOT IN (SELECT video_id FROM watch_progress)
+	`, feedID).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.feed_id = ?
+		  AND (v.is_short IS NULL OR v.is_short = 0)
+		  AND v.id NOT IN (SELECT video_id FROM watch_progress)
+		ORDER BY RANDOM()
+		LIMIT ? OFFSET ?
+	`, feedID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	for rows.Next() {
+		var v models.Video
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
+			return nil, 0, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
+		}
+		videos = append(videos, v)
+	}
+	return videos, total, rows.Err()
+}
+
 // GetNearbyVideos returns videos from the same feed as the given video,
 // positioned around the current video based on publish date.
 // Returns up to `limit` videos that come after this video in the feed.

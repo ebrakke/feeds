@@ -106,6 +106,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/feeds/{id}", s.handleAPIGetFeed)
 	mux.HandleFunc("DELETE /api/feeds/{id}", s.handleAPIDeleteFeed)
 	mux.HandleFunc("GET /api/feeds/{id}/export", s.handleExportFeed)
+	mux.HandleFunc("GET /api/feeds/{id}/shuffle", s.handleAPIGetShuffledVideos)
 	mux.HandleFunc("POST /api/feeds/{id}/refresh", s.handleAPIRefreshFeed)
 	mux.HandleFunc("GET /api/feeds/{id}/refresh/stream", s.handleRefreshFeedStream)
 
