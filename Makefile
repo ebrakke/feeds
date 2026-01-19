@@ -96,7 +96,7 @@ install:
 update:
 	git pull
 	$(MAKE) build
-	sudo systemctl restart feeds
+	systemctl restart feeds
 
 # Playwright e2e testing
 .PHONY: e2e
