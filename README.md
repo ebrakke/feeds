@@ -75,27 +75,101 @@ Piped is great for privacy-first proxying for many users. Grayjay is great as a 
 - **Everything view** — See all recent videos across all feeds in one place
 - **Streaming & downloads** — Uses yt-dlp under the hood for reliable playback
 
-## Quick start
+## Installation
+
+### Quick install (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/erik/feeds/main/install.sh | sh
+```
+
+This downloads the latest release binary to `/usr/local/bin`. Requires `curl` and optionally `sudo`.
 
 ### Prerequisites
 
-- Go 1.22+
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and in PATH
-- [Bun](https://bun.sh/) for frontend dev/build
-
-### Run it
+**Required:**
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) for video streaming and downloads
 
 ```bash
-# Clone and build
-git clone https://github.com/erik/feeds.git
-cd feeds
-make build
+# macOS
+brew install yt-dlp
 
-# Run (creates feeds.db in current directory)
-./feeds
+# Linux (pip)
+pip install yt-dlp
+
+# Linux (package manager)
+sudo apt install yt-dlp   # Debian/Ubuntu
+sudo dnf install yt-dlp   # Fedora
+```
+
+### Running Feeds
+
+```bash
+# Start the server (creates feeds.db in current directory)
+feeds
+
+# Or specify a different port/database
+FEEDS_ADDR=:3000 FEEDS_DB=/path/to/feeds.db feeds
 ```
 
 Open `http://localhost:8080` in your browser.
+
+### Running as a service (systemd)
+
+For production deployments, run Feeds as a systemd service:
+
+```bash
+# Create a dedicated user
+sudo useradd -r -s /bin/false feeds
+
+# Create install directory
+sudo mkdir -p /opt/feeds/data
+sudo chown feeds:feeds /opt/feeds/data
+
+# Download the binary
+sudo curl -fsSL https://github.com/erik/feeds/releases/latest/download/feeds-linux-amd64 -o /opt/feeds/feeds
+sudo chmod +x /opt/feeds/feeds
+
+# Copy and customize the service file
+sudo curl -fsSL https://raw.githubusercontent.com/erik/feeds/main/feeds.service.example -o /etc/systemd/system/feeds.service
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable feeds
+sudo systemctl start feeds
+
+# Check logs
+journalctl -u feeds -f
+```
+
+### Configuration
+
+Create a `.env` file in the working directory or set environment variables:
+
+```bash
+# Server address (default: :8080)
+FEEDS_ADDR=:8080
+
+# Database path (default: ./feeds.db)
+FEEDS_DB=/path/to/feeds.db
+
+# Path to yt-dlp cookies file (optional, for age-restricted videos)
+FEEDS_YTDLP_COOKIES=/path/to/cookies.txt
+
+# OpenAI API key (optional, enables AI-powered feed organization)
+OPENAI_API_KEY=sk-...
+```
+
+### Build from source
+
+Requires Go 1.22+ and [Bun](https://bun.sh/):
+
+```bash
+git clone https://github.com/erik/feeds.git
+cd feeds
+make build
+./feeds
+```
 
 ### Development
 
@@ -103,18 +177,7 @@ Open `http://localhost:8080` in your browser.
 make dev
 ```
 
-Open `http://localhost:5173` in your browser.
-
-### Configuration
-
-Create a `.env` file or set environment variables:
-
-```bash
-PORT=8080              # Server port
-DB_PATH=./feeds.db     # SQLite database location
-OPENAI_API_KEY=...     # Optional: for AI-powered feed organization
-FEEDS_YTDLP_COOKIES=... # Optional: path to yt-dlp cookies.txt
-```
+This runs the Go backend with hot-reload (via air) and the Vite dev server. Open `http://localhost:5173` in your browser.
 
 ## Sharing feeds
 
