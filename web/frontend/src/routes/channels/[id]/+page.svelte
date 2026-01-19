@@ -1,19 +1,25 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getChannel, refreshChannel } from '$lib/api';
-	import type { Channel, Video, WatchProgress } from '$lib/types';
+	import { getChannel, refreshChannel, addChannelToFeed, removeChannelFromFeed } from '$lib/api';
+	import type { Channel, Video, WatchProgress, Feed } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
 
 	let channel = $state<Channel | null>(null);
 	let videos = $state<Video[]>([]);
 	let progressMap = $state<Record<string, WatchProgress>>({});
+	let feeds = $state<Feed[]>([]);
+	let allFeeds = $state<Feed[]>([]);
 	let loading = $state(true);
 	let refreshing = $state(false);
 	let error = $state<string | null>(null);
+	let showAddDropdown = $state(false);
+	let addingToFeed = $state(false);
+	let removingFromFeed = $state<number | null>(null);
 
 	let id = $derived(parseInt($page.params.id));
 	let scrollRestoreKey = $derived(`channel-${id}-last-video`);
+	let availableFeeds = $derived(allFeeds.filter(f => !feeds.some(cf => cf.id === f.id)));
 
 	onMount(async () => {
 		await loadChannel();
@@ -27,6 +33,8 @@
 			channel = data.channel;
 			videos = data.videos;
 			progressMap = data.progressMap || {};
+			feeds = data.feeds || [];
+			allFeeds = data.allFeeds || [];
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load channel';
 		} finally {
@@ -45,7 +53,53 @@
 			refreshing = false;
 		}
 	}
+
+	async function handleAddToFeed(feedId: number) {
+		addingToFeed = true;
+		try {
+			const result = await addChannelToFeed(id, feedId);
+			feeds = result.feeds;
+			showAddDropdown = false;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to add to feed';
+		} finally {
+			addingToFeed = false;
+		}
+	}
+
+	async function handleRemoveFromFeed(feedId: number) {
+		// Confirm if this is the last feed
+		if (feeds.length === 1) {
+			if (!confirm('This will delete the channel and all its videos. Continue?')) {
+				return;
+			}
+		}
+
+		removingFromFeed = feedId;
+		try {
+			await removeChannelFromFeed(feedId, id);
+			feeds = feeds.filter(f => f.id !== feedId);
+
+			// If no more feeds, redirect to home
+			if (feeds.length === 0) {
+				window.location.href = '/';
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to remove from feed';
+		} finally {
+			removingFromFeed = null;
+		}
+	}
+
+	function handleClickOutside(event: MouseEvent) {
+		const target = event.target as HTMLElement;
+		if (!target.closest('.add-feed-dropdown')) {
+			showAddDropdown = false;
+		}
+	}
 </script>
+
+<svelte:window onclick={handleClickOutside} />
 
 <svelte:head>
 	<title>{channel?.name ?? 'Channel'} - Feeds</title>
@@ -123,6 +177,63 @@
 					Refresh
 				{/if}
 			</button>
+		</div>
+
+		<!-- Feed Chips -->
+		<div class="mt-4 flex flex-wrap items-center gap-2">
+			<span class="text-sm text-text-muted">Feeds:</span>
+			{#each feeds as feed (feed.id)}
+				<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-surface border border-white/5 text-sm">
+					<a href="/feeds/{feed.id}" class="hover:text-emerald-400 transition-colors">
+						{feed.name}
+					</a>
+					<button
+						onclick={() => handleRemoveFromFeed(feed.id)}
+						disabled={removingFromFeed === feed.id}
+						class="text-text-muted hover:text-crimson-400 transition-colors"
+						title="Remove from this feed"
+					>
+						{#if removingFromFeed === feed.id}
+							<svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+							</svg>
+						{:else}
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M18 6L6 18M6 6l12 12"/>
+							</svg>
+						{/if}
+					</button>
+				</span>
+			{/each}
+
+			<!-- Add to Feed Button -->
+			<div class="relative add-feed-dropdown">
+				<button
+					onclick={() => showAddDropdown = !showAddDropdown}
+					disabled={availableFeeds.length === 0}
+					class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+				>
+					<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M12 5v14M5 12h14"/>
+					</svg>
+					Add to feed
+				</button>
+
+				{#if showAddDropdown && availableFeeds.length > 0}
+					<div class="absolute top-full left-0 mt-1 w-48 bg-surface border border-white/10 rounded-lg shadow-xl z-20">
+						{#each availableFeeds as feed (feed.id)}
+							<button
+								onclick={() => handleAddToFeed(feed.id)}
+								disabled={addingToFeed}
+								class="w-full px-4 py-2 text-left text-sm hover:bg-white/5 transition-colors first:rounded-t-lg last:rounded-b-lg"
+							>
+								{feed.name}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		</div>
 	</header>
 
