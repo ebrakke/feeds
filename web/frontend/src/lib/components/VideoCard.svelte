@@ -151,7 +151,7 @@
 	{#if showRemoveFromFeed && currentFeedId}
 		<button
 			onclick={toggleMenu}
-			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all opacity-0 group-hover:opacity-100 z-30"
+			class="absolute top-2 right-2 p-2 rounded-lg bg-void/80 backdrop-blur-sm text-text-secondary hover:text-text-primary hover:bg-white/10 transition-all sm:opacity-0 sm:group-hover:opacity-100 z-30"
 			title="More options"
 		>
 			<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
