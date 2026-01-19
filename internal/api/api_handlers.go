@@ -332,16 +332,45 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check shorts status synchronously before saving
+	// Check shorts status only for videos that don't already have it
 	if len(allVideos) > 0 {
 		videoIDs := make([]string, len(allVideos))
 		for i, v := range allVideos {
 			videoIDs[i] = v.ID
 		}
-		shortsStatus := yt.CheckShortsStatus(videoIDs)
+
+		// Get existing shorts status from DB
+		existingStatus, err := s.db.GetVideoShortsStatus(videoIDs)
+		if err != nil {
+			log.Printf("Failed to get existing shorts status: %v", err)
+			existingStatus = map[string]bool{}
+		}
+
+		// Only check shorts for videos that don't have status yet
+		var needsCheck []string
+		for _, id := range videoIDs {
+			if _, hasStatus := existingStatus[id]; !hasStatus {
+				needsCheck = append(needsCheck, id)
+			}
+		}
+
+		// Fetch shorts status only for new videos
+		var newShortsStatus map[string]bool
+		if len(needsCheck) > 0 {
+			log.Printf("Checking shorts status for %d new videos (skipping %d with existing status)", len(needsCheck), len(existingStatus))
+			newShortsStatus = yt.CheckShortsStatus(needsCheck)
+		} else {
+			log.Printf("All %d videos already have shorts status, skipping check", len(videoIDs))
+			newShortsStatus = map[string]bool{}
+		}
+
+		// Merge existing and new status
+		for id, isShort := range existingStatus {
+			newShortsStatus[id] = isShort
+		}
 
 		for i := range allVideos {
-			if isShort, ok := shortsStatus[allVideos[i].ID]; ok {
+			if isShort, ok := newShortsStatus[allVideos[i].ID]; ok {
 				allVideos[i].IsShort = &isShort
 			}
 			if err := s.db.UpsertVideo(&allVideos[i]); err != nil {

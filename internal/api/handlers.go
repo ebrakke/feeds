@@ -687,12 +687,39 @@ func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request)
 		}
 
 		if len(res.videos) > 0 {
-			// Check shorts status synchronously before saving
+			// Check shorts status only for videos that don't already have it
 			videoIDs := make([]string, len(res.videos))
 			for i, v := range res.videos {
 				videoIDs[i] = v.ID
 			}
-			shortsStatus := youtube.CheckShortsStatus(videoIDs)
+
+			// Get existing shorts status from DB
+			existingStatus, err := s.db.GetVideoShortsStatus(videoIDs)
+			if err != nil {
+				log.Printf("Failed to get existing shorts status: %v", err)
+				existingStatus = map[string]bool{}
+			}
+
+			// Only check shorts for videos that don't have status yet
+			var needsCheck []string
+			for _, id := range videoIDs {
+				if _, hasStatus := existingStatus[id]; !hasStatus {
+					needsCheck = append(needsCheck, id)
+				}
+			}
+
+			// Fetch shorts status only for new videos
+			var shortsStatus map[string]bool
+			if len(needsCheck) > 0 {
+				shortsStatus = youtube.CheckShortsStatus(needsCheck)
+			} else {
+				shortsStatus = map[string]bool{}
+			}
+
+			// Merge existing status into results
+			for id, isShort := range existingStatus {
+				shortsStatus[id] = isShort
+			}
 
 			for i := range res.videos {
 				res.videos[i].ChannelID = res.chID

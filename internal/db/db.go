@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -904,4 +905,42 @@ func (db *DB) GetVideosWithoutShortStatus(feedID int64, limit int) ([]string, er
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// GetVideoShortsStatus returns existing shorts status for given video IDs.
+// Returns a map of videoID -> isShort for videos that have is_short set (not NULL).
+func (db *DB) GetVideoShortsStatus(videoIDs []string) (map[string]bool, error) {
+	if len(videoIDs) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	// Build query with placeholders
+	placeholders := make([]string, len(videoIDs))
+	args := make([]any, len(videoIDs))
+	for i, id := range videoIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, is_short FROM videos
+		WHERE id IN (%s) AND is_short IS NOT NULL
+	`, strings.Join(placeholders, ","))
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		var isShort int
+		if err := rows.Scan(&id, &isShort); err != nil {
+			return nil, err
+		}
+		result[id] = isShort == 1
+	}
+	return result, rows.Err()
 }
