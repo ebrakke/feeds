@@ -216,32 +216,69 @@ func (db *DB) GetOrCreateFeed(name string) (*models.Feed, error) {
 
 // Channel operations
 
-func (db *DB) AddChannel(feedID int64, url, name string) (*models.Channel, error) {
-	result, err := db.conn.Exec(
-		"INSERT INTO channels (feed_id, url, name) VALUES (?, ?, ?)",
-		feedID, url, name,
+// AddChannelToFeed adds a channel to a feed. If the channel URL doesn't exist,
+// creates it first. Returns the channel and whether it was newly created.
+func (db *DB) AddChannelToFeed(feedID int64, url, name string) (*models.Channel, bool, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+
+	// Check if channel exists
+	var channel models.Channel
+	err = tx.QueryRow(
+		"SELECT id, url, name FROM channels WHERE url = ?", url,
+	).Scan(&channel.ID, &channel.URL, &channel.Name)
+
+	isNew := false
+	if err == sql.ErrNoRows {
+		// Create new channel
+		result, err := tx.Exec(
+			"INSERT INTO channels (url, name) VALUES (?, ?)",
+			url, name,
+		)
+		if err != nil {
+			return nil, false, err
+		}
+		channel.ID, _ = result.LastInsertId()
+		channel.URL = url
+		channel.Name = name
+		isNew = true
+	} else if err != nil {
+		return nil, false, err
+	}
+
+	// Add to feed (ignore if already exists)
+	_, err = tx.Exec(
+		"INSERT OR IGNORE INTO feed_channels (feed_id, channel_id) VALUES (?, ?)",
+		feedID, channel.ID,
 	)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, err
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
 	}
 
-	return &models.Channel{
-		ID:     id,
-		FeedID: feedID,
-		URL:    url,
-		Name:   name,
-	}, nil
+	return &channel, isNew, nil
+}
+
+// AddChannel is a compatibility wrapper for AddChannelToFeed
+func (db *DB) AddChannel(feedID int64, url, name string) (*models.Channel, error) {
+	channel, _, err := db.AddChannelToFeed(feedID, url, name)
+	return channel, err
 }
 
 func (db *DB) GetChannelsByFeed(feedID int64) ([]models.Channel, error) {
-	rows, err := db.conn.Query(
-		"SELECT id, feed_id, url, name FROM channels WHERE feed_id = ? ORDER BY name", feedID,
-	)
+	rows, err := db.conn.Query(`
+		SELECT c.id, c.url, c.name
+		FROM channels c
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ?
+		ORDER BY c.name
+	`, feedID)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +287,7 @@ func (db *DB) GetChannelsByFeed(feedID int64) ([]models.Channel, error) {
 	var channels []models.Channel
 	for rows.Next() {
 		var c models.Channel
-		if err := rows.Scan(&c.ID, &c.FeedID, &c.URL, &c.Name); err != nil {
+		if err := rows.Scan(&c.ID, &c.URL, &c.Name); err != nil {
 			return nil, err
 		}
 		channels = append(channels, c)
@@ -258,21 +295,18 @@ func (db *DB) GetChannelsByFeed(feedID int64) ([]models.Channel, error) {
 	return channels, rows.Err()
 }
 
+// DeleteChannel removes a channel completely (from all feeds)
 func (db *DB) DeleteChannel(channelID int64) error {
+	// CASCADE will handle feed_channels and videos
 	_, err := db.conn.Exec("DELETE FROM channels WHERE id = ?", channelID)
-	return err
-}
-
-func (db *DB) MoveChannel(channelID, newFeedID int64) error {
-	_, err := db.conn.Exec("UPDATE channels SET feed_id = ? WHERE id = ?", newFeedID, channelID)
 	return err
 }
 
 func (db *DB) GetChannel(channelID int64) (*models.Channel, error) {
 	var c models.Channel
 	err := db.conn.QueryRow(
-		"SELECT id, feed_id, url, name FROM channels WHERE id = ?", channelID,
-	).Scan(&c.ID, &c.FeedID, &c.URL, &c.Name)
+		"SELECT id, url, name FROM channels WHERE id = ?", channelID,
+	).Scan(&c.ID, &c.URL, &c.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -283,8 +317,8 @@ func (db *DB) GetChannel(channelID int64) (*models.Channel, error) {
 func (db *DB) GetChannelByURL(url string) (*models.Channel, error) {
 	var c models.Channel
 	err := db.conn.QueryRow(
-		"SELECT id, feed_id, url, name FROM channels WHERE url = ?", url,
-	).Scan(&c.ID, &c.FeedID, &c.URL, &c.Name)
+		"SELECT id, url, name FROM channels WHERE url = ?", url,
+	).Scan(&c.ID, &c.URL, &c.Name)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -294,25 +328,84 @@ func (db *DB) GetChannelByURL(url string) (*models.Channel, error) {
 	return &c, nil
 }
 
-// GetChannelsByURL returns all channels with a given URL (may exist in multiple feeds)
+// GetChannelsByURL returns the channel with the given URL (now unique)
 func (db *DB) GetChannelsByURL(url string) ([]models.Channel, error) {
-	rows, err := db.conn.Query(
-		"SELECT id, feed_id, url, name FROM channels WHERE url = ?", url,
-	)
+	channel, err := db.GetChannelByURL(url)
+	if err != nil || channel == nil {
+		return nil, err
+	}
+	return []models.Channel{*channel}, nil
+}
+
+// GetFeedsByChannel returns all feeds that contain a channel
+func (db *DB) GetFeedsByChannel(channelID int64) ([]models.Feed, error) {
+	rows, err := db.conn.Query(`
+		SELECT f.id, f.name, f.description, f.author, f.tags, f.is_system, f.created_at, f.updated_at
+		FROM feeds f
+		JOIN feed_channels fc ON f.id = fc.feed_id
+		WHERE fc.channel_id = ?
+		ORDER BY f.name
+	`, channelID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var channels []models.Channel
+	var feeds []models.Feed
 	for rows.Next() {
-		var c models.Channel
-		if err := rows.Scan(&c.ID, &c.FeedID, &c.URL, &c.Name); err != nil {
+		var f models.Feed
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
-		channels = append(channels, c)
+		feeds = append(feeds, f)
 	}
-	return channels, rows.Err()
+	return feeds, rows.Err()
+}
+
+// RemoveChannelFromFeed removes a channel from a feed.
+// If the channel has no more feeds, it and its videos are deleted.
+// Returns true if the channel was completely deleted.
+func (db *DB) RemoveChannelFromFeed(feedID, channelID int64) (bool, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	// Remove the feed-channel link
+	_, err = tx.Exec(
+		"DELETE FROM feed_channels WHERE feed_id = ? AND channel_id = ?",
+		feedID, channelID,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if channel has any remaining feeds
+	var count int
+	err = tx.QueryRow(
+		"SELECT COUNT(*) FROM feed_channels WHERE channel_id = ?",
+		channelID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+
+	deleted := false
+	if count == 0 {
+		// No more feeds - delete channel (videos cascade)
+		_, err = tx.Exec("DELETE FROM channels WHERE id = ?", channelID)
+		if err != nil {
+			return false, err
+		}
+		deleted = true
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return deleted, nil
 }
 
 // Video operations
@@ -353,7 +446,8 @@ func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, 
 		SELECT COUNT(*)
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ?
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ?
 	`, feedID).Scan(&total)
 	if err != nil {
 		return nil, 0, err
@@ -363,7 +457,8 @@ func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, 
 		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ?
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ?
 		ORDER BY v.published DESC
 		LIMIT ? OFFSET ?
 	`, feedID, limit, offset)
@@ -420,7 +515,8 @@ func (db *DB) GetVideosWithoutDuration(feedID int64, limit int) ([]string, error
 	rows, err := db.conn.Query(`
 		SELECT v.id FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ? AND v.duration = 0
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ? AND v.duration = 0
 		ORDER BY v.published DESC
 		LIMIT ?
 	`, feedID, limit)
@@ -449,7 +545,9 @@ func (db *DB) UpdateVideoDuration(videoID string, duration int) error {
 func (db *DB) DeleteVideosByFeed(feedID int64) error {
 	_, err := db.conn.Exec(`
 		DELETE FROM videos WHERE channel_id IN (
-			SELECT id FROM channels WHERE feed_id = ?
+			SELECT c.id FROM channels c
+			JOIN feed_channels fc ON c.id = fc.channel_id
+			WHERE fc.feed_id = ?
 		)
 	`, feedID)
 	return err
@@ -762,7 +860,8 @@ func (db *DB) GetShuffledVideosByFeed(feedID int64, limit, offset int) ([]models
 		SELECT COUNT(*)
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ?
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ?
 		  AND (v.is_short IS NULL OR v.is_short = 0)
 		  AND v.id NOT IN (SELECT video_id FROM watch_progress)
 	`, feedID).Scan(&total)
@@ -774,7 +873,8 @@ func (db *DB) GetShuffledVideosByFeed(feedID int64, limit, offset int) ([]models
 		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ?
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ?
 		  AND (v.is_short IS NULL OR v.is_short = 0)
 		  AND v.id NOT IN (SELECT video_id FROM watch_progress)
 		ORDER BY RANDOM()
@@ -805,14 +905,18 @@ func (db *DB) GetShuffledVideosByFeed(feedID int64, limit, offset int) ([]models
 // Returns up to `limit` videos that come after this video in the feed.
 // Excludes shorts.
 func (db *DB) GetNearbyVideos(videoID string, limit int, offset int) ([]models.Video, int64, error) {
-	// First, get the video's feed and published date
+	// First, get a feed for this video and published date
+	// Note: With multi-feed channels, a video could be in multiple feeds.
+	// We pick the first one found for now.
 	var feedID int64
 	var published time.Time
 	err := db.conn.QueryRow(`
-		SELECT c.feed_id, v.published
+		SELECT fc.feed_id, v.published
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
+		JOIN feed_channels fc ON c.id = fc.channel_id
 		WHERE v.id = ?
+		LIMIT 1
 	`, videoID).Scan(&feedID, &published)
 	if err != nil {
 		return nil, 0, err
@@ -824,7 +928,8 @@ func (db *DB) GetNearbyVideos(videoID string, limit int, offset int) ([]models.V
 		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
 		FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ? AND v.published <= ? AND v.id != ? AND (v.is_short IS NULL OR v.is_short = 0)
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ? AND v.published <= ? AND v.id != ? AND (v.is_short IS NULL OR v.is_short = 0)
 		ORDER BY v.published DESC
 		LIMIT ? OFFSET ?
 	`, feedID, published, videoID, limit, offset)
@@ -863,7 +968,8 @@ func (db *DB) GetVideosWithoutShortStatus(feedID int64, limit int) ([]string, er
 	rows, err := db.conn.Query(`
 		SELECT v.id FROM videos v
 		JOIN channels c ON v.channel_id = c.id
-		WHERE c.feed_id = ? AND v.is_short IS NULL
+		JOIN feed_channels fc ON c.id = fc.channel_id
+		WHERE fc.feed_id = ? AND v.is_short IS NULL
 		ORDER BY v.published DESC
 		LIMIT ?
 	`, feedID, limit)
