@@ -11,7 +11,6 @@ export interface Feed {
 
 export interface Channel {
 	id: number;
-	feed_id: number;
 	url: string;
 	name: string;
 }
