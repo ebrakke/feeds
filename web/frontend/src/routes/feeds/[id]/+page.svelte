@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import { getFeed, deleteFeed, deleteChannel, getShuffledVideos } from '$lib/api';
+	import { getFeed, deleteFeed, removeChannelFromFeed, getShuffledVideos } from '$lib/api';
 	import type { Feed, Channel, Video, WatchProgress } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
 
@@ -198,13 +198,13 @@
 		deletingChannels.add(channelId);
 		deletingChannels = deletingChannels;
 		try {
-			await deleteChannel(channelId);
+			await removeChannelFromFeed(id, channelId);
 			channels = channels.filter(c => c.id !== channelId);
 			videos = videos.filter(v => v.channel_id !== channelId);
 			selectedChannels.delete(channelId);
 			selectedChannels = selectedChannels;
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to delete channel';
+			error = e instanceof Error ? e.message : 'Failed to remove channel from feed';
 		} finally {
 			deletingChannels.delete(channelId);
 			deletingChannels = deletingChannels;
@@ -242,7 +242,7 @@
 		let failed = 0;
 		for (const channelId of toDelete) {
 			try {
-				await deleteChannel(channelId);
+				await removeChannelFromFeed(id, channelId);
 				channels = channels.filter(c => c.id !== channelId);
 				videos = videos.filter(v => v.channel_id !== channelId);
 				selectedChannels.delete(channelId);
