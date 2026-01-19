@@ -74,6 +74,7 @@
 html {
   background: var(--color-void);
   color-scheme: dark;
+  overflow-x: hidden;
 }
 
 body {
@@ -83,6 +84,7 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
 /* Film Grain Texture Overlay */
@@ -610,6 +612,7 @@ a {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 1.5rem;
+  max-width: 100%;
 }
 
 @media (max-width: 640px) {
@@ -617,6 +620,12 @@ a {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
+}
+
+/* Ensure cards don't overflow on mobile */
+.card {
+  max-width: 100%;
+  overflow: hidden;
 }
 
 /* ============================================
