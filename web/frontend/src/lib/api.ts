@@ -85,6 +85,8 @@ export async function getChannel(id: number): Promise<{
 	channel: Channel;
 	videos: Video[];
 	progressMap: Record<string, WatchProgress>;
+	feeds: Feed[];
+	allFeeds: Feed[];
 }> {
 	return fetchJSON(`/channels/${id}`);
 }
@@ -100,8 +102,12 @@ export async function deleteChannel(id: number): Promise<void> {
 	return fetchJSON(`/channels/${id}`, { method: 'DELETE' });
 }
 
-export async function moveChannel(id: number, feedId: number): Promise<void> {
-	return fetchJSON(`/channels/${id}/move`, {
+export async function removeChannelFromFeed(feedId: number, channelId: number): Promise<{ deleted: boolean }> {
+	return fetchJSON(`/feeds/${feedId}/channels/${channelId}`, { method: 'DELETE' });
+}
+
+export async function addChannelToFeed(channelId: number, feedId: number): Promise<{ feeds: Feed[] }> {
+	return fetchJSON(`/channels/${channelId}/feeds`, {
 		method: 'POST',
 		body: JSON.stringify({ feedId })
 	});
