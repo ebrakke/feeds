@@ -77,10 +77,10 @@
 	async function handleOpenAddToFeed(e: Event) {
 		e.preventDefault();
 		e.stopPropagation();
-		if (loadingFeeds) return;
+		if (loadingFeeds || addingToFeed) return;
 
-		showAddToFeedMenu = !showAddToFeedMenu;
-		if (!showAddToFeedMenu) return;
+		// Check if mobile (no hover support = touch device)
+		const isMobile = window.matchMedia('(hover: none)').matches;
 
 		loadingFeeds = true;
 		try {
@@ -93,12 +93,75 @@
 			availableFeeds = feedsResult.filter(
 				(f) => !f.is_system && f.id !== currentFeedId && !channelFeedIds.has(f.id)
 			);
+
+			if (isMobile) {
+				// Mobile: Use native prompt
+				loadingFeeds = false;
+				await handleMobileAddToFeed();
+			} else {
+				// Desktop: Show submenu
+				showAddToFeedMenu = true;
+			}
 		} catch (err) {
 			console.error('Failed to load feeds:', err);
 			toast.error('Failed to load feeds');
 			showAddToFeedMenu = false;
 		} finally {
 			loadingFeeds = false;
+		}
+	}
+
+	async function handleMobileAddToFeed() {
+		// Build numbered list of options
+		const options = availableFeeds.map((f, i) => `${i + 1}. ${f.name}`);
+		options.push(`${availableFeeds.length + 1}. Create new feed`);
+
+		const choice = prompt(
+			`Add "${video.channel_name}" to feed:\n\n${options.join('\n')}\n\nEnter number:`
+		);
+
+		if (!choice?.trim()) {
+			showMenu = false;
+			return;
+		}
+
+		const num = parseInt(choice.trim(), 10);
+		if (isNaN(num) || num < 1 || num > options.length) {
+			toast.error('Invalid selection');
+			return;
+		}
+
+		if (num === options.length) {
+			// Create new feed
+			const name = prompt('Enter feed name:');
+			if (!name?.trim()) return;
+
+			addingToFeed = true;
+			try {
+				const newFeed = await createFeed(name.trim());
+				await addChannelToFeed(video.channel_id, newFeed.id);
+				toast.success(`Added to ${newFeed.name}`);
+				showMenu = false;
+			} catch (err) {
+				console.error('Failed to create feed:', err);
+				toast.error('Failed to create feed');
+			} finally {
+				addingToFeed = false;
+			}
+		} else {
+			// Add to existing feed
+			const feed = availableFeeds[num - 1];
+			addingToFeed = true;
+			try {
+				await addChannelToFeed(video.channel_id, feed.id);
+				toast.success(`Added to ${feed.name}`);
+				showMenu = false;
+			} catch (err) {
+				console.error('Failed to add to feed:', err);
+				toast.error('Failed to add to feed');
+			} finally {
+				addingToFeed = false;
+			}
 		}
 	}
 
@@ -322,7 +385,7 @@
 						{/if}
 						Add to feed
 					</span>
-					<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg class="w-3 h-3 hidden sm:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M9 18l6-6-6-6"/>
 					</svg>
 				</button>
