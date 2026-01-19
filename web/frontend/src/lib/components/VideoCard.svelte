@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { Video, WatchProgress } from '$lib/types';
-	import { removeChannelFromFeed, markWatched, markUnwatched } from '$lib/api';
+	import type { Video, WatchProgress, Feed } from '$lib/types';
+	import { removeChannelFromFeed, markWatched, markUnwatched, getFeeds, getChannel, addChannelToFeed, createFeed } from '$lib/api';
+	import { toast } from '$lib/stores/toast';
 
 	interface Props {
 		video: Video;
@@ -27,6 +28,10 @@
 	let showMenu = $state(false);
 	let removingFromFeed = $state(false);
 	let togglingWatched = $state(false);
+	let showAddToFeedMenu = $state(false);
+	let availableFeeds = $state<Feed[]>([]);
+	let loadingFeeds = $state(false);
+	let addingToFeed = $state(false);
 
 	async function handleRemoveFromFeed(e: Event) {
 		e.preventDefault();
@@ -69,6 +74,75 @@
 		}
 	}
 
+	async function handleOpenAddToFeed(e: Event) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (loadingFeeds) return;
+
+		showAddToFeedMenu = !showAddToFeedMenu;
+		if (!showAddToFeedMenu) return;
+
+		loadingFeeds = true;
+		try {
+			const [feedsResult, channelResult] = await Promise.all([
+				getFeeds(),
+				getChannel(video.channel_id)
+			]);
+
+			const channelFeedIds = new Set(channelResult.feeds.map((f) => f.id));
+			availableFeeds = feedsResult.filter(
+				(f) => !f.is_system && f.id !== currentFeedId && !channelFeedIds.has(f.id)
+			);
+		} catch (err) {
+			console.error('Failed to load feeds:', err);
+			toast.error('Failed to load feeds');
+			showAddToFeedMenu = false;
+		} finally {
+			loadingFeeds = false;
+		}
+	}
+
+	async function handleAddToFeed(feed: Feed, e: Event) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (addingToFeed) return;
+
+		addingToFeed = true;
+		try {
+			await addChannelToFeed(video.channel_id, feed.id);
+			toast.success(`Added to ${feed.name}`);
+			showMenu = false;
+			showAddToFeedMenu = false;
+		} catch (err) {
+			console.error('Failed to add to feed:', err);
+			toast.error('Failed to add to feed');
+		} finally {
+			addingToFeed = false;
+		}
+	}
+
+	async function handleCreateNewFeed(e: Event) {
+		e.preventDefault();
+		e.stopPropagation();
+
+		const name = prompt('Enter feed name:');
+		if (!name?.trim()) return;
+
+		addingToFeed = true;
+		try {
+			const newFeed = await createFeed(name.trim());
+			await addChannelToFeed(video.channel_id, newFeed.id);
+			toast.success(`Added to ${newFeed.name}`);
+			showMenu = false;
+			showAddToFeedMenu = false;
+		} catch (err) {
+			console.error('Failed to create feed:', err);
+			toast.error('Failed to create feed');
+		} finally {
+			addingToFeed = false;
+		}
+	}
+
 	function toggleMenu(e: Event) {
 		e.preventDefault();
 		e.stopPropagation();
@@ -77,6 +151,7 @@
 
 	function closeMenu() {
 		showMenu = false;
+		showAddToFeedMenu = false;
 	}
 
 	function formatDuration(seconds: number): string {
@@ -206,7 +281,7 @@
 			<button
 				onclick={handleToggleWatched}
 				disabled={togglingWatched}
-				class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors {showRemoveFromFeed && currentFeedId ? '' : 'rounded-b-lg'} disabled:opacity-50"
+				class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors disabled:opacity-50"
 			>
 				{#if togglingWatched}
 					<svg class="w-4 h-4 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -227,6 +302,57 @@
 				{/if}
 				{isWatched ? 'Mark as unwatched' : 'Mark as watched'}
 			</button>
+			<div class="border-t border-white/10"></div>
+			<div class="relative">
+				<button
+					onclick={handleOpenAddToFeed}
+					disabled={loadingFeeds || addingToFeed}
+					class="flex items-center justify-between w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors disabled:opacity-50"
+				>
+					<span class="flex items-center">
+						{#if loadingFeeds}
+							<svg class="w-4 h-4 mr-2 animate-spin" viewBox="0 0 24 24" fill="none">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+							</svg>
+						{:else}
+							<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M12 5v14M5 12h14"/>
+							</svg>
+						{/if}
+						Add to feed
+					</span>
+					<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M9 18l6-6-6-6"/>
+					</svg>
+				</button>
+				{#if showAddToFeedMenu}
+					<div class="absolute left-full top-0 ml-1 w-48 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
+						{#if availableFeeds.length > 0}
+							{#each availableFeeds as feed}
+								<button
+									onclick={(e) => handleAddToFeed(feed, e)}
+									disabled={addingToFeed}
+									class="flex items-center w-full px-4 py-2 text-sm hover:bg-white/5 transition-colors first:rounded-t-lg disabled:opacity-50"
+								>
+									{feed.name}
+								</button>
+							{/each}
+							<div class="border-t border-white/10"></div>
+						{/if}
+						<button
+							onclick={handleCreateNewFeed}
+							disabled={addingToFeed}
+							class="flex items-center w-full px-4 py-2 text-sm text-emerald-400 hover:bg-emerald-500/10 transition-colors rounded-b-lg {availableFeeds.length === 0 ? 'rounded-t-lg' : ''} disabled:opacity-50"
+						>
+							<svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M12 5v14M5 12h14"/>
+							</svg>
+							Create new feed...
+						</button>
+					</div>
+				{/if}
+			</div>
 			{#if showRemoveFromFeed && currentFeedId}
 				<div class="border-t border-white/10"></div>
 				<button
