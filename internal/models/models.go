@@ -14,10 +14,9 @@ type Feed struct {
 }
 
 type Channel struct {
-	ID     int64  `json:"id"`
-	FeedID int64  `json:"feed_id"`
-	URL    string `json:"url"`
-	Name   string `json:"name"`
+	ID   int64  `json:"id"`
+	URL  string `json:"url"`
+	Name string `json:"name"`
 }
 
 type Video struct {
