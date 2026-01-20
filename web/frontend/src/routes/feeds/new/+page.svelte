@@ -52,7 +52,7 @@
     step = 2;
   }
 
-  let filteredChannels = $derived(() => {
+  let filteredChannels = $derived.by(() => {
     let result = allChannels;
 
     if (selectedFeedFilter !== 'all') {
@@ -64,7 +64,7 @@
       result = result.filter(c => c.channel.name.toLowerCase().includes(query));
     }
 
-    return result.sort((a, b) => a.channel.name.localeCompare(b.channel.name));
+    return [...result].sort((a, b) => a.channel.name.localeCompare(b.channel.name));
   });
 
   function toggleChannel(channelId: number) {
@@ -203,7 +203,7 @@
 
       <!-- Channel List -->
       <div class="card divide-y divide-border-subtle max-h-[50vh] overflow-y-auto">
-        {#each filteredChannels() as { channel }}
+        {#each filteredChannels as { channel }}
           <button
             onclick={() => toggleChannel(channel.id)}
             class="w-full flex items-center gap-3 p-3 hover:bg-elevated transition-colors text-left"

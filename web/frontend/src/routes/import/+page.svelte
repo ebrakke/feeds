@@ -2,23 +2,20 @@
 	import { goto } from '$app/navigation';
 	import {
 		importFromURL,
-		importFromFile,
 		importWatchHistory,
 		confirmOrganize,
-		getPacks,
-		getConfig,
-		setYtdlpCookies,
-		clearYtdlpCookies
+		getPacks
 	} from '$lib/api';
-	import type { Feed, Config, WatchHistoryChannel, GroupSuggestion } from '$lib/types';
+	import type { WatchHistoryChannel, GroupSuggestion } from '$lib/types';
 
 	type Step = 'upload' | 'preview' | 'organize' | 'confirm';
 
+	// URL/Link import
 	let importURL = $state('');
-	let importFile = $state<File | null>(null);
 	let importLoading = $state(false);
 	let importError = $state<string | null>(null);
 
+	// Watch history import
 	let watchStep = $state<Step>('upload');
 	let watchFile = $state<File | null>(null);
 	let watchLoading = $state(false);
@@ -27,19 +24,13 @@
 	let watchTotalVideos = $state(0);
 	let watchGroups = $state<GroupSuggestion[]>([]);
 	let watchSelectedChannels = $state<Set<string>>(new Set());
-	let config = $state<Config | null>(null);
 
-	let cookiesText = $state('');
-	let cookiesSaving = $state(false);
-	let cookiesError = $state<string | null>(null);
-	let cookiesMessage = $state<string | null>(null);
-
+	// Subscription packs
 	let packs = $state<{ name: string; description: string; author: string; tags: string[] }[]>([]);
 
 	// Load packs on mount
 	$effect(() => {
 		getPacks().then(p => packs = p).catch(() => {});
-		getConfig().then(c => config = c).catch(() => {});
 	});
 
 	async function handleImportURL(e: Event) {
@@ -58,71 +49,10 @@
 		}
 	}
 
-	async function handleImportFile(e: Event) {
-		e.preventDefault();
-		if (!importFile) return;
-
-		importLoading = true;
-		importError = null;
-		try {
-			const feed = await importFromFile(importFile);
-			goto(`/feeds/${feed.id}`);
-		} catch (e) {
-			importError = e instanceof Error ? e.message : 'Failed to import';
-		} finally {
-			importLoading = false;
-		}
-	}
-
-	function handleFileChange(e: Event) {
-		const target = e.target as HTMLInputElement;
-		importFile = target.files?.[0] ?? null;
-	}
-
 	function handleWatchFileChange(e: Event) {
 		const target = e.target as HTMLInputElement;
 		watchFile = target.files?.[0] ?? null;
 		watchError = null;
-	}
-
-	async function handleSaveCookies(e: Event) {
-		e.preventDefault();
-		cookiesError = null;
-		cookiesMessage = null;
-
-		const cookies = cookiesText.trim();
-		if (!cookies) {
-			cookiesError = 'Paste cookies.txt contents first.';
-			return;
-		}
-
-		cookiesSaving = true;
-		try {
-			await setYtdlpCookies(cookies);
-			cookiesText = '';
-			cookiesMessage = 'Cookies saved. Streaming should work immediately.';
-			config = await getConfig();
-		} catch (e) {
-			cookiesError = e instanceof Error ? e.message : 'Failed to save cookies.';
-		} finally {
-			cookiesSaving = false;
-		}
-	}
-
-	async function handleClearCookies() {
-		cookiesError = null;
-		cookiesMessage = null;
-
-		cookiesSaving = true;
-		try {
-			await clearYtdlpCookies();
-			cookiesMessage = 'Cookies cleared.';
-			config = await getConfig();
-		} catch (e) {
-			cookiesError = e instanceof Error ? e.message : 'Failed to clear cookies.';
-		} finally {
-			cookiesSaving = false;
-		}
 	}
 
 	async function handlePackImport(packName: string) {
@@ -275,7 +205,7 @@
 <header class="mb-6 sm:mb-8 animate-fade-up" style="opacity: 0;">
 	<h1 class="text-xl sm:text-2xl font-display font-bold mb-1.5 sm:mb-2">Import</h1>
 	<p class="text-text-muted text-sm sm:text-base">
-		Bring in existing feeds or build new ones from your YouTube watch history.
+		Add channels from your YouTube history or paste a link.
 	</p>
 </header>
 
@@ -294,8 +224,45 @@
 {/if}
 
 <div class="space-y-6 sm:space-y-8">
-	<!-- Watch History Import Section -->
+	<!-- Paste YouTube Link -->
 	<section class="card p-4 sm:p-6 animate-fade-up stagger-1" style="opacity: 0;">
+		<div class="flex items-center gap-3 mb-4">
+			<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center">
+				<svg class="w-5 h-5 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+					<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+				</svg>
+			</div>
+			<div>
+				<h2 class="text-lg font-display font-semibold">Paste a Link</h2>
+				<p class="text-text-muted text-sm">Add a YouTube channel or video URL</p>
+			</div>
+		</div>
+		<form onsubmit={handleImportURL} class="flex flex-col sm:flex-row gap-3">
+			<input
+				type="url"
+				bind:value={importURL}
+				placeholder="https://youtube.com/channel/... or video URL"
+				class="flex-1 bg-void border border-white/10 rounded-lg px-4 py-3 text-text-primary placeholder-text-dim focus:outline-none focus:border-emerald-500/50 transition-colors"
+			/>
+			<button
+				type="submit"
+				disabled={importLoading || !importURL.trim()}
+				class="btn btn-primary whitespace-nowrap"
+			>
+				{#if importLoading}
+					<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+					</svg>
+				{/if}
+				Add
+			</button>
+		</form>
+	</section>
+
+	<!-- Watch History Import Section -->
+	<section class="card p-4 sm:p-6 animate-fade-up stagger-2" style="opacity: 0;">
 		<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-6">
 			<div>
 				<div class="flex items-center gap-3 mb-1">
@@ -305,10 +272,10 @@
 							<polyline points="12 6 12 12 16 14"/>
 						</svg>
 					</div>
-					<h2 class="text-lg font-display font-semibold">Watch History</h2>
+					<h2 class="text-lg font-display font-semibold">Import Watch History</h2>
 				</div>
 				<p class="text-text-muted text-sm mt-2 sm:mt-0 sm:ml-13">
-					Upload Google Takeout history to discover channels you've actually watched.
+					Upload your Google Takeout history to discover channels you watch most.
 				</p>
 			</div>
 			<span class="text-xs text-text-dim font-mono bg-surface px-2.5 py-1.5 rounded self-start whitespace-nowrap">
@@ -322,7 +289,7 @@
 			</div>
 		{/if}
 
-		<!-- Progress Steps - mobile optimized with compact view -->
+		<!-- Progress Steps -->
 		<div class="flex items-center gap-1 sm:gap-2 mb-5 sm:mb-6 overflow-x-auto pb-1 -mx-1 px-1">
 			{#each ['Upload', 'Select', 'Organize', 'Confirm'] as label, i}
 				{@const stepNum = i + 1}
@@ -352,52 +319,49 @@
 			<div class="bg-surface rounded-xl p-5 border border-white/5">
 				<h3 class="text-sm font-display font-semibold mb-3">Get Your YouTube Watch History</h3>
 				<p class="text-text-muted text-sm mb-4">
-					Import your watch history to discover channels you actually care about. We'll organize them by how often you watch.
+					We'll organize channels by how often you watch them.
 				</p>
 
-				<div class="bg-void rounded-xl p-4 mb-5 border border-white/5">
-					<h4 class="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">How to export from Google Takeout</h4>
-					<ol class="space-y-3 text-sm">
-						<li class="flex gap-3">
-							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">1</span>
-							<div>
-								<span class="text-text-primary">Go to </span>
-								<a href="https://takeout.google.com" target="_blank" rel="noopener" class="text-emerald-400 hover:text-emerald-300 transition-colors font-medium">takeout.google.com</a>
-							</div>
-						</li>
-						<li class="flex gap-3">
-							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">2</span>
-							<div class="text-text-primary">
-								Click <span class="text-text-secondary">"Deselect all"</span>, then scroll down and check only <span class="text-text-secondary">"YouTube and YouTube Music"</span>
-							</div>
-						</li>
-						<li class="flex gap-3">
-							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">3</span>
-							<div class="text-text-primary">
-								Click <span class="text-text-secondary">"All YouTube data included"</span> → deselect everything except <span class="text-text-secondary">"history"</span>
-							</div>
-						</li>
-						<li class="flex gap-3">
-							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">4</span>
-							<div class="text-text-primary">
-								Click <span class="text-text-secondary">"Multiple formats"</span> → find history and change format from <span class="text-crimson-400">HTML</span> to <span class="text-emerald-400 font-medium">JSON</span>
-								<span class="block text-text-dim text-xs mt-1">This step is important - the default HTML format won't work</span>
-							</div>
-						</li>
-						<li class="flex gap-3">
-							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">5</span>
-							<div class="text-text-primary">
-								Click <span class="text-text-secondary">"Next step"</span> → <span class="text-text-secondary">"Create export"</span> → wait for email → download and unzip
-							</div>
-						</li>
-						<li class="flex gap-3">
-							<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">6</span>
-							<div class="text-text-primary">
-								Find <code class="bg-surface px-1.5 py-0.5 rounded text-emerald-400 text-xs">watch-history.json</code> in the <code class="bg-surface px-1.5 py-0.5 rounded text-text-secondary text-xs">YouTube and YouTube Music/history/</code> folder
-							</div>
-						</li>
-					</ol>
-				</div>
+				<details class="bg-void rounded-xl border border-white/5 mb-5">
+					<summary class="px-4 py-3 cursor-pointer text-sm font-medium text-text-secondary hover:text-text-primary transition-colors">
+						How to export from Google Takeout
+					</summary>
+					<div class="px-4 pb-4">
+						<ol class="space-y-3 text-sm mt-3">
+							<li class="flex gap-3">
+								<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">1</span>
+								<div>
+									<span class="text-text-primary">Go to </span>
+									<a href="https://takeout.google.com" target="_blank" rel="noopener" class="text-emerald-400 hover:text-emerald-300 transition-colors font-medium">takeout.google.com</a>
+								</div>
+							</li>
+							<li class="flex gap-3">
+								<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">2</span>
+								<div class="text-text-primary">
+									Click <span class="text-text-secondary">"Deselect all"</span>, then check only <span class="text-text-secondary">"YouTube and YouTube Music"</span>
+								</div>
+							</li>
+							<li class="flex gap-3">
+								<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">3</span>
+								<div class="text-text-primary">
+									Click <span class="text-text-secondary">"All YouTube data included"</span> → deselect all except <span class="text-text-secondary">"history"</span>
+								</div>
+							</li>
+							<li class="flex gap-3">
+								<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">4</span>
+								<div class="text-text-primary">
+									Click <span class="text-text-secondary">"Multiple formats"</span> → change history from <span class="text-crimson-400">HTML</span> to <span class="text-emerald-400 font-medium">JSON</span>
+								</div>
+							</li>
+							<li class="flex gap-3">
+								<span class="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">5</span>
+								<div class="text-text-primary">
+									Export, download, unzip, and find <code class="bg-surface px-1.5 py-0.5 rounded text-emerald-400 text-xs">watch-history.json</code>
+								</div>
+							</li>
+						</ol>
+					</div>
+				</details>
 
 				<input
 					type="file"
@@ -581,153 +545,9 @@
 		{/if}
 	</section>
 
-	<!-- YouTube Cookies Section -->
-	<section class="card p-6 animate-fade-up stagger-2" style="opacity: 0;">
-		<div class="flex items-center gap-3 mb-4">
-			<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center">
-				<svg class="w-5 h-5 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-				</svg>
-			</div>
-			<div>
-				<h2 class="text-lg font-display font-semibold">YouTube Cookies</h2>
-				<span class="text-xs text-text-dim">Optional</span>
-			</div>
-		</div>
-		<p class="text-text-muted text-sm mb-4">
-			Paste a Netscape-format cookies.txt export here to unlock streaming when YouTube blocks your IP.
-			This stays on your server.
-		</p>
-
-		{#if cookiesError}
-			<div class="bg-crimson-500/10 border border-crimson-500/30 rounded-xl p-3 mb-4">
-				<p class="text-crimson-400 text-sm">{cookiesError}</p>
-			</div>
-		{/if}
-		{#if cookiesMessage}
-			<div class="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 mb-4">
-				<p class="text-emerald-400 text-sm">{cookiesMessage}</p>
-			</div>
-		{/if}
-
-		<form onsubmit={handleSaveCookies}>
-			<textarea
-				bind:value={cookiesText}
-				rows="5"
-				placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;FALSE&#9;0&#9;VISITOR_INFO1_LIVE&#9;..."
-				class="w-full bg-void border border-white/10 rounded-xl px-4 py-3 mb-4 text-text-primary placeholder-text-dim font-mono text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
-			></textarea>
-			<div class="flex items-center gap-3">
-				<button
-					type="submit"
-					disabled={cookiesSaving}
-					class="btn btn-primary"
-				>
-					{#if cookiesSaving}
-						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-						</svg>
-					{/if}
-					Save Cookies
-				</button>
-				<button
-					type="button"
-					onclick={handleClearCookies}
-					disabled={cookiesSaving || !config?.ytdlpCookiesConfigured}
-					class="btn btn-secondary"
-				>
-					Clear
-				</button>
-				<span class="text-xs text-text-dim flex items-center gap-2">
-					<span class="w-2 h-2 rounded-full {config?.ytdlpCookiesConfigured ? 'bg-emerald-400' : 'bg-text-dim'}"></span>
-					{config?.ytdlpCookiesConfigured ? 'Configured' : 'Not set'}
-				</span>
-			</div>
-		</form>
-	</section>
-
-	<!-- Import Methods Grid -->
-	<div class="grid gap-6 md:grid-cols-2 animate-fade-up stagger-3" style="opacity: 0;">
-		<!-- Import from URL -->
-		<section class="card p-6">
-			<div class="flex items-center gap-3 mb-4">
-				<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center">
-					<svg class="w-5 h-5 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-						<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-					</svg>
-				</div>
-				<h2 class="text-lg font-display font-semibold">Import from URL</h2>
-			</div>
-			<form onsubmit={handleImportURL}>
-				<input
-					type="url"
-					bind:value={importURL}
-					placeholder="https://example.com/feed.json"
-					class="w-full bg-void border border-white/10 rounded-lg px-4 py-3 mb-4 text-text-primary placeholder-text-dim focus:outline-none focus:border-emerald-500/50 transition-colors"
-				/>
-				<button
-					type="submit"
-					disabled={importLoading || !importURL.trim()}
-					class="btn btn-primary"
-				>
-					{#if importLoading}
-						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-						</svg>
-					{/if}
-					Import
-				</button>
-			</form>
-		</section>
-
-		<!-- Import from File -->
-		<section class="card p-6">
-			<div class="flex items-center gap-3 mb-4">
-				<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center">
-					<svg class="w-5 h-5 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-						<polyline points="14 2 14 8 20 8"/>
-						<line x1="12" y1="18" x2="12" y2="12"/>
-						<line x1="9" y1="15" x2="15" y2="15"/>
-					</svg>
-				</div>
-				<h2 class="text-lg font-display font-semibold">Import from File</h2>
-			</div>
-			<p class="text-text-muted text-sm mb-4">
-				Upload a NewPipe export (JSON) or Feeds export file.
-			</p>
-			<form onsubmit={handleImportFile}>
-				<input
-					type="file"
-					accept=".json"
-					onchange={handleFileChange}
-					class="w-full bg-void border border-white/10 rounded-lg px-4 py-3 mb-4 text-text-primary
-						file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500 file:text-void file:font-medium file:cursor-pointer
-						file:hover:bg-emerald-400 file:transition-colors focus:outline-none focus:border-emerald-500/50"
-				/>
-				<button
-					type="submit"
-					disabled={importLoading || !importFile}
-					class="btn btn-primary"
-				>
-					{#if importLoading}
-						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-						</svg>
-					{/if}
-					Upload & Import
-				</button>
-			</form>
-		</section>
-	</div>
-
 	<!-- Subscription Packs -->
 	{#if packs.length > 0}
-		<section class="card p-6 animate-fade-up stagger-4" style="opacity: 0;">
+		<section class="card p-4 sm:p-6 animate-fade-up stagger-3" style="opacity: 0;">
 			<div class="flex items-center gap-3 mb-4">
 				<div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
 					<svg class="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
