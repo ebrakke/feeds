@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { getFeeds } from '$lib/api';
 	import type { Feed } from '$lib/types';
+	import { navigationOrigin } from '$lib/stores/navigation';
 
 	let feeds = $state<Feed[]>([]);
 	let loading = $state(true);
@@ -18,6 +19,11 @@
 		} finally {
 			loading = false;
 		}
+	});
+
+	// Clear navigation origin when returning to home
+	$effect(() => {
+		navigationOrigin.clear();
 	});
 
 	async function openVideo(e: Event) {
