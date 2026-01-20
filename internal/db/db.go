@@ -295,6 +295,27 @@ func (db *DB) GetChannelsByFeed(feedID int64) ([]models.Channel, error) {
 	return channels, rows.Err()
 }
 
+// GetAllChannels returns all channels in the database
+func (db *DB) GetAllChannels() ([]models.Channel, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, url, name FROM channels ORDER BY name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var channels []models.Channel
+	for rows.Next() {
+		var c models.Channel
+		if err := rows.Scan(&c.ID, &c.URL, &c.Name); err != nil {
+			return nil, err
+		}
+		channels = append(channels, c)
+	}
+	return channels, rows.Err()
+}
+
 // DeleteChannel removes a channel completely (from all feeds)
 func (db *DB) DeleteChannel(channelID int64) error {
 	// CASCADE will handle feed_channels and videos
