@@ -614,6 +614,38 @@ func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// handleAPIGetChannelFeeds returns all feeds that contain a channel
+func (s *Server) handleAPIGetChannelFeeds(w http.ResponseWriter, r *http.Request) {
+	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	feeds, err := s.db.GetFeedsByChannel(channelID)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type membership struct {
+		ChannelID int64  `json:"channelId"`
+		FeedID    int64  `json:"feedId"`
+		FeedName  string `json:"feedName"`
+	}
+
+	memberships := make([]membership, 0, len(feeds))
+	for _, feed := range feeds {
+		memberships = append(memberships, membership{
+			ChannelID: channelID,
+			FeedID:    feed.ID,
+			FeedName:  feed.Name,
+		})
+	}
+
+	jsonResponse(w, memberships)
+}
+
 // Video endpoints
 
 func (s *Server) handleAPIGetRecentVideos(w http.ResponseWriter, r *http.Request) {
