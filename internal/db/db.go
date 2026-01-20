@@ -29,6 +29,15 @@ func New(path string) (*DB, error) {
 		return nil, err
 	}
 
+	// Enable WAL mode for concurrent reads/writes
+	if _, err := conn.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, err
+	}
+	// Wait up to 5 seconds for locks instead of failing immediately
+	if _, err := conn.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return nil, err
+	}
+
 	db := &DB{conn: conn}
 	if err := db.migrate(); err != nil {
 		return nil, err
