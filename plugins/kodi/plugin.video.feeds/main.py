@@ -8,10 +8,11 @@ import xbmc
 import xbmcgui
 import xbmcplugin
 import xbmcaddon
+import xbmcvfs
 
 # Add lib to path
 ADDON = xbmcaddon.Addon()
-sys.path.insert(0, xbmc.translatePath(ADDON.getAddonInfo("path") + "/resources/lib"))
+sys.path.insert(0, xbmcvfs.translatePath(ADDON.getAddonInfo("path") + "/resources/lib"))
 
 from feeds_api import FeedsAPI, FeedsAPIError
 from utils import format_duration, format_relative_date, build_plugin_url
