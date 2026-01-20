@@ -16,6 +16,8 @@ class FeedsPlayer(xbmc.Player):
         self.last_progress_report = 0
         self.duration = 0
         self.playing = False
+        self.marked_watched = False
+        self.monitor = xbmc.Monitor()
 
     def onAVStarted(self):
         """Called when playback actually starts."""
@@ -58,7 +60,7 @@ class FeedsPlayer(xbmc.Player):
         """Start the playback monitoring loop."""
         report_interval = 30  # seconds
 
-        while self.playing and not xbmc.Monitor().abortRequested():
+        while self.playing and not self.monitor.abortRequested():
             try:
                 position = self.getTime()
                 current_time = int(position)
@@ -85,9 +87,10 @@ class FeedsPlayer(xbmc.Player):
                     self.last_progress_report = current_time
 
                 # Check if 90% complete -> mark as watched
-                if self.duration > 0 and position > self.duration * 0.9:
+                if self.duration > 0 and position > self.duration * 0.9 and not self.marked_watched:
                     try:
                         self.api.mark_watched(self.video_id)
+                        self.marked_watched = True
                     except Exception:
                         pass
 
