@@ -5,6 +5,9 @@
 	import type { Feed } from '$lib/types';
 
 	let processing = $state(false);
+	let creatingNew = $state(false);
+	let newFeedName = $state('');
+	let creating = $state(false);
 
 	async function handleSelect(feed: Feed) {
 		if (processing) return;
@@ -21,29 +24,30 @@
 		}
 	}
 
-	async function handleCreate() {
-		if (processing) return;
+	async function handleCreateAndAdd() {
+		if (!newFeedName.trim() || !$bottomSheet.channelId) return;
 
-		const name = prompt('Enter feed name:');
-		if (!name?.trim()) return;
-
-		processing = true;
+		creating = true;
 		try {
-			const newFeed = await createFeed(name.trim());
+			const newFeed = await createFeed(newFeedName.trim());
 			await addChannelToFeed($bottomSheet.channelId!, newFeed.id);
-			toast.success(`Added to ${newFeed.name}`);
+			toast.success(`Created "${newFeedName}" and added ${$bottomSheet.channelName}`);
 			bottomSheet.close();
+			newFeedName = '';
+			creatingNew = false;
 		} catch (err) {
 			console.error('Failed to create feed:', err);
 			toast.error('Failed to create feed');
 		} finally {
-			processing = false;
+			creating = false;
 		}
 	}
 
 	function handleClose() {
-		if (!processing) {
+		if (!processing && !creating) {
 			bottomSheet.close();
+			creatingNew = false;
+			newFeedName = '';
 		}
 	}
 </script>
@@ -66,29 +70,65 @@
 
 		<!-- Content -->
 		<div class="max-h-[60vh] overflow-y-auto overscroll-contain py-2">
-			{#each $bottomSheet.feeds as feed}
+			{#each $bottomSheet.feeds.filter(f => !f.is_system) as feed}
 				<button
 					onclick={() => handleSelect(feed)}
 					disabled={processing}
-					class="flex items-center w-full px-4 py-3 text-base text-text-primary hover:bg-white/5 active:bg-white/10 transition-colors disabled:opacity-50"
+					class="w-full flex items-center justify-between px-4 py-3 hover:bg-elevated transition-colors disabled:opacity-50 text-left"
 				>
-					{feed.name}
+					<span class="text-text-primary">{feed.name}</span>
+					<div class="w-5 h-5 rounded-full border-2 flex items-center justify-center {$bottomSheet.memberFeedIds.includes(feed.id) ? 'bg-emerald-500 border-emerald-500' : 'border-text-muted'}">
+						{#if $bottomSheet.memberFeedIds.includes(feed.id)}
+							<svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+							</svg>
+						{/if}
+					</div>
 				</button>
 			{/each}
-			{#if $bottomSheet.feeds.length === 0}
+			{#if $bottomSheet.feeds.filter(f => !f.is_system).length === 0}
 				<p class="px-4 py-3 text-sm text-text-muted">No available feeds</p>
 			{/if}
-			<div class="border-t border-white/10 mt-2"></div>
-			<button
-				onclick={handleCreate}
-				disabled={processing}
-				class="flex items-center w-full px-4 py-3 text-base text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20 transition-colors disabled:opacity-50"
-			>
-				<svg class="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M12 5v14M5 12h14"/>
-				</svg>
-				Create new feed
-			</button>
+
+			<div class="border-t border-border-subtle">
+				{#if creatingNew}
+					<div class="p-4 space-y-3">
+						<input
+							type="text"
+							bind:value={newFeedName}
+							placeholder="New feed name..."
+							class="input w-full"
+							onkeydown={(e) => e.key === 'Enter' && handleCreateAndAdd()}
+						/>
+						<div class="flex gap-2">
+							<button
+								onclick={() => { creatingNew = false; newFeedName = ''; }}
+								class="btn btn-ghost flex-1"
+								disabled={creating}
+							>
+								Cancel
+							</button>
+							<button
+								onclick={handleCreateAndAdd}
+								class="btn btn-primary flex-1"
+								disabled={creating || !newFeedName.trim()}
+							>
+								{creating ? 'Creating...' : 'Create'}
+							</button>
+						</div>
+					</div>
+				{:else}
+					<button
+						onclick={() => creatingNew = true}
+						class="w-full flex items-center gap-3 px-4 py-3 text-emerald-500 hover:bg-elevated transition-colors"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+						</svg>
+						<span>Create new feed</span>
+					</button>
+				{/if}
+			</div>
 		</div>
 	</div>
 {/if}

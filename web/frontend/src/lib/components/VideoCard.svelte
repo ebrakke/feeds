@@ -102,7 +102,8 @@
 					title: 'Add to feed',
 					channelId: video.channel_id,
 					channelName: video.channel_name,
-					feeds: availableFeeds
+					feeds: feedsResult, // Pass all feeds, sheet will filter out system feeds
+					memberFeedIds: channelResult.feeds.map((f) => f.id)
 				});
 			} else {
 				// Desktop: Show submenu
