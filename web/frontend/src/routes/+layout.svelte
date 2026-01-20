@@ -2,8 +2,19 @@
 	import '../app.css';
 	import Toast from '$lib/components/Toast.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
+	import HamburgerMenu from '$lib/components/HamburgerMenu.svelte';
+	import { navigationOrigin } from '$lib/stores/navigation';
+	import { page } from '$app/stores';
 
 	let { children } = $props();
+
+	let menuOpen = $state(false);
+
+	// Determine if we should show origin navigation
+	let showOrigin = $derived(
+		$navigationOrigin !== null &&
+		($page.url.pathname.startsWith('/watch/') || $page.url.pathname.startsWith('/channels/'))
+	);
 </script>
 
 <svelte:head>
@@ -15,40 +26,47 @@
 	<header class="app-header">
 		<div class="container">
 			<nav class="flex items-center justify-between h-14 sm:h-16">
-				<!-- Logo -->
-				<a href="/" class="group flex items-center gap-2 sm:gap-2.5 -ml-1 p-1 rounded-lg">
-					<div class="w-9 h-9 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-[0_0_20px_rgba(52,211,153,0.2)] group-hover:shadow-[0_0_30px_rgba(52,211,153,0.3)] transition-shadow">
-						<svg class="w-4.5 h-4.5 sm:w-4 sm:h-4 text-[#050505]" viewBox="0 0 24 24" fill="currentColor">
-							<path d="M8 5v14l11-7z"/>
-						</svg>
-					</div>
-					<span class="text-lg font-display font-semibold tracking-tight text-text-primary group-hover:text-emerald-400 transition-colors">
-						Feeds
-					</span>
-				</a>
-
-				<!-- Navigation - touch-optimized -->
-				<div class="flex items-center gap-2 sm:gap-1 -mr-1">
+				{#if showOrigin && $navigationOrigin}
+					<!-- Contextual back navigation -->
 					<a
-						href="/history"
-						class="btn btn-ghost btn-sm flex items-center justify-center"
-						aria-label="History"
+						href={$navigationOrigin.path}
+						class="flex items-center gap-2 -ml-1 p-1 rounded-lg text-text-primary hover:bg-elevated transition-colors min-w-0"
 					>
-						<svg class="w-5 h-5 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<circle cx="12" cy="12" r="10"/>
-							<polyline points="12,6 12,12 16,14"/>
+						<svg class="w-5 h-5 flex-shrink-0 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
 						</svg>
-						<span class="hidden sm:inline ml-1.5">History</span>
+						<span class="font-medium truncate">{$navigationOrigin.feedName}</span>
 					</a>
-					<a
-						href="/import"
-						class="btn btn-primary btn-sm flex items-center justify-center"
-					>
-						<svg class="w-5 h-5 sm:w-4 sm:h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-							<line x1="12" y1="5" x2="12" y2="19"/>
-							<line x1="5" y1="12" x2="19" y2="12"/>
+				{:else}
+					<!-- Default navigation -->
+					<div class="flex items-center gap-2">
+						<button
+							onclick={() => menuOpen = true}
+							class="p-2 -ml-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-elevated transition-colors"
+							aria-label="Open menu"
+						>
+							<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+							</svg>
+						</button>
+						<a href="/" class="group flex items-center gap-2 p-1 rounded-lg hover:bg-elevated transition-colors">
+							<div class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+								<svg class="w-4 h-4 sm:w-5 sm:h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
+									<path d="M8 5v14l11-7z"/>
+								</svg>
+							</div>
+							<span class="text-lg font-display font-semibold text-text-primary">Feeds</span>
+						</a>
+					</div>
+				{/if}
+
+				<!-- Right side buttons -->
+				<div class="flex items-center gap-1 -mr-1">
+					<a href="/settings" class="btn btn-ghost btn-sm" aria-label="Settings">
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 						</svg>
-						<span class="ml-1.5">Import</span>
 					</a>
 				</div>
 			</nav>
@@ -70,4 +88,5 @@
 	</footer>
 	<Toast />
 	<BottomSheet />
+	<HamburgerMenu bind:open={menuOpen} />
 </div>
