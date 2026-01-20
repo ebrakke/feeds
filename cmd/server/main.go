@@ -133,6 +133,9 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	// Start background video refresh scheduler
+	_ = api.NewVideoRefreshScheduler(database)
+
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 
