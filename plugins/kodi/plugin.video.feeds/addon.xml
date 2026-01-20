@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon id="plugin.video.feeds"
+       name="Feeds"
+       version="0.1.0"
+       provider-name="feeds">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="main.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <platform>all</platform>
+        <summary lang="en_GB">Browse your Feeds subscriptions</summary>
+        <description lang="en_GB">Connect to your self-hosted Feeds server to browse YouTube subscriptions organized by feed. Features quality selection, watch progress sync, and SponsorBlock integration.</description>
+        <license>MIT</license>
+    </extension>
+</addon>
