@@ -223,7 +223,7 @@ def play_video(video_id: str):
             selected_quality = available[-1] if available else cached[-1]
         else:
             # Find matching quality or closest
-            target = str(default_quality) + "p"
+            target = str(default_quality)
             if target in available:
                 selected_quality = target
             elif target in cached:
@@ -249,7 +249,7 @@ def play_video(video_id: str):
 
                 # Check if now cached
                 new_qualities = api.get_video_qualities(video_id)
-                if selected_quality in new_qualities.get("cached", []):
+                if selected_quality in (new_qualities.get("cached") or []):
                     break
 
             pDialog.close()
