@@ -193,8 +193,8 @@ def play_video(video_id: str):
 
         # Get available qualities
         qualities_data = api.get_video_qualities(video_id)
-        available = qualities_data.get("available", [])
-        cached = qualities_data.get("cached", [])
+        available = qualities_data.get("available") or []
+        cached = qualities_data.get("cached") or []
 
         if not available and not cached:
             xbmcgui.Dialog().ok("Feeds", "No qualities available for this video.")
