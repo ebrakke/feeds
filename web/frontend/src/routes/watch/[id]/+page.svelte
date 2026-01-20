@@ -1,14 +1,17 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { getVideoInfo, updateProgress, getFeeds, addChannel, deleteChannel, getNearbyVideos, getSegments, getQualities, startDownload, subscribeToDownloadProgress } from '$lib/api';
+	import { getVideoInfo, updateProgress, getFeeds, addChannel, getNearbyVideos, getSegments, getQualities, startDownload, subscribeToDownloadProgress, removeChannelFromFeed } from '$lib/api';
 	import type { Feed, Video, WatchProgress, ChannelMembership, SponsorBlockSegment } from '$lib/types';
+	import { bottomSheet } from '$lib/stores/bottomSheet';
+	import { toast } from '$lib/stores/toast';
 
 	let videoId = $derived($page.params.id ?? '');
 
 	let title = $state('');
 	let channelName = $state('');
 	let channelURL = $state('');
+	let channelId = $state<number | null>(null);
 	let viewCount = $state(0);
 	let thumbnailURL = $state('');
 
@@ -33,9 +36,7 @@
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let subscribing = $state(false);
-	let removingChannelId = $state<number | null>(null);
-	let selectedFeedId = $state<string>('');
+	let removingFromFeed = $state(false);
 
 	// Download state
 	let availableQualities = $state<string[]>([]);
@@ -204,6 +205,7 @@
 		title = '';
 		channelName = '';
 		channelURL = '';
+		channelId = null;
 		viewCount = 0;
 		thumbnailURL = '';
 		actualHeight = 0;
@@ -224,6 +226,7 @@
 			title = data.title;
 			channelName = data.channel;
 			channelURL = data.channelURL;
+			channelId = data.channelId ?? null;
 			viewCount = data.viewCount || 0;
 			thumbnailURL = data.thumbnail || '';
 			channelMemberships = data.channelMemberships || [];
@@ -307,16 +310,25 @@
 		}, { once: true });
 	});
 
+	// Track when bottomSheet closes to update memberships
+	let wasBottomSheetOpen = false;
+	$effect(() => {
+		const isOpen = $bottomSheet.open;
+		if (wasBottomSheetOpen && !isOpen && channelId) {
+			// Sheet just closed, refresh memberships from the video info
+			getVideoInfo(videoId).then(data => {
+				channelMemberships = data.channelMemberships || [];
+			}).catch(() => {});
+		}
+		wasBottomSheetOpen = isOpen;
+	});
+
 	onMount(async () => {
 		loadSavedSpeed();
 		loadSponsorBlockSetting();
 
 		try {
 			feeds = await getFeeds();
-			const inbox = feeds.find(f => f.is_system);
-			if (inbox) {
-				selectedFeedId = inbox.id.toString();
-			}
 		} catch (e) {
 			console.warn('Failed to load feeds:', e);
 		}
@@ -439,37 +451,53 @@
 		}
 	}
 
-	async function handleSubscribe() {
-		if (!selectedFeedId || !channelURL) return;
-
-		subscribing = true;
-		try {
-			const channel = await addChannel(parseInt(selectedFeedId), channelURL);
-			const feed = feeds.find(f => f.id === parseInt(selectedFeedId));
-			const feedName = feed?.is_system ? 'Inbox' : (feed?.name || 'Feed');
-			channelMemberships = [...channelMemberships, {
-				channelId: channel.id,
-				feedId: parseInt(selectedFeedId),
-				feedName
-			}];
-		} catch (e) {
-			console.error('Failed to subscribe:', e);
-			alert(e instanceof Error ? e.message : 'Failed to subscribe');
-		} finally {
-			subscribing = false;
+	async function handleOpenAddToFeed() {
+		// If we don't have a channelId yet, we need to add the channel first via the URL
+		if (!channelId && channelURL) {
+			// Add channel to get an ID (uses first available feed, typically inbox)
+			try {
+				const inbox = feeds.find(f => f.is_system);
+				if (inbox) {
+					const channel = await addChannel(inbox.id, channelURL);
+					channelId = channel.id;
+					channelMemberships = [{
+						channelId: channel.id,
+						feedId: inbox.id,
+						feedName: 'Inbox'
+					}];
+				}
+			} catch (e) {
+				console.error('Failed to add channel:', e);
+				toast.error('Failed to add channel');
+				return;
+			}
 		}
+
+		if (!channelId) {
+			toast.error('Unable to add channel');
+			return;
+		}
+
+		bottomSheet.open({
+			title: 'Add to feed',
+			channelId: channelId,
+			channelName: channelName,
+			feeds: feeds,
+			memberFeedIds: channelMemberships.map(m => m.feedId)
+		});
 	}
 
-	async function handleRemove(membership: ChannelMembership) {
-		removingChannelId = membership.channelId;
+	async function handleRemoveFromFeed(membership: ChannelMembership) {
+		removingFromFeed = true;
 		try {
-			await deleteChannel(membership.channelId);
-			channelMemberships = channelMemberships.filter(m => m.channelId !== membership.channelId);
+			await removeChannelFromFeed(membership.feedId, membership.channelId);
+			channelMemberships = channelMemberships.filter(m => m.feedId !== membership.feedId);
+			toast.success(`Removed from ${membership.feedName}`);
 		} catch (e) {
-			console.error('Failed to remove channel:', e);
-			alert(e instanceof Error ? e.message : 'Failed to remove channel');
+			console.error('Failed to remove from feed:', e);
+			toast.error('Failed to remove from feed');
 		} finally {
-			removingChannelId = null;
+			removingFromFeed = false;
 		}
 	}
 
@@ -761,7 +789,7 @@
 						{/if}
 					</div>
 
-					<!-- Subscribe Section -->
+					<!-- Feed Membership -->
 					<div class="flex items-center gap-2 flex-wrap">
 						{#each channelMemberships as membership}
 							<span class="badge">
@@ -769,45 +797,26 @@
 									{membership.feedName}
 								</a>
 								<button
-									onclick={() => handleRemove(membership)}
-									disabled={removingChannelId === membership.channelId}
+									onclick={() => handleRemoveFromFeed(membership)}
+									disabled={removingFromFeed}
 									class="ml-1 text-text-muted hover:text-crimson-400 transition-colors disabled:opacity-50"
 								>
-									{#if removingChannelId === membership.channelId}
-										<svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-										</svg>
-									{:else}
-										<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path d="M18 6L6 18M6 6l12 12"/>
-										</svg>
-									{/if}
+									<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M18 6L6 18M6 6l12 12"/>
+									</svg>
 								</button>
 							</span>
 						{/each}
 
 						{#if channelURL && feeds.length > 0}
-							<select bind:value={selectedFeedId} class="select">
-								<option value="" disabled>Add to...</option>
-								{#each feeds as feed}
-									<option value={feed.id.toString()}>
-										{feed.is_system ? 'Inbox' : feed.name}
-									</option>
-								{/each}
-							</select>
 							<button
-								onclick={handleSubscribe}
-								disabled={subscribing || !selectedFeedId}
+								onclick={handleOpenAddToFeed}
 								class="btn btn-primary btn-sm"
 							>
-								{#if subscribing}
-									<svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-									</svg>
-								{/if}
-								Add
+								<svg class="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M12 5v14M5 12h14"/>
+								</svg>
+								Add to feed
 							</button>
 						{:else if feeds.length === 0 && !loading}
 							<a href="/import" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">

@@ -888,7 +888,7 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 
 	if ok && time.Now().Before(cached.expiresAt) {
 		// Cache hit - check subscription status and return
-		channelMemberships := s.getChannelMemberships(cached.channelURL)
+		chInfo := s.getChannelInfo(cached.channelURL)
 
 		// Get saved progress for resume
 		var resumeFrom int
@@ -903,7 +903,8 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 			"streamURL":          cached.streamURL,
 			"channelURL":         cached.channelURL,
 			"thumbnail":          cached.thumbnail,
-			"channelMemberships": channelMemberships,
+			"channelId":          chInfo.ChannelID,
+			"channelMemberships": chInfo.Memberships,
 			"viewCount":          cached.viewCount,
 			"resumeFrom":         resumeFrom,
 		})
@@ -946,8 +947,8 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	s.streamCacheMu.Unlock()
 
-	// Get channel memberships (all feeds this channel is in)
-	channelMemberships := s.getChannelMemberships(channelURL)
+	// Get channel info (ID if known + memberships)
+	chInfo := s.getChannelInfo(channelURL)
 
 	// Get saved progress for resume
 	var resumeFrom int
@@ -962,7 +963,8 @@ func (s *Server) handleWatchInfo(w http.ResponseWriter, r *http.Request) {
 		"streamURL":          streamURL,
 		"channelURL":         channelURL,
 		"thumbnail":          info.GetBestThumbnail(),
-		"channelMemberships": channelMemberships,
+		"channelId":          chInfo.ChannelID,
+		"channelMemberships": chInfo.Memberships,
 		"viewCount":          info.ViewCount,
 		"resumeFrom":         resumeFrom,
 	})
@@ -975,20 +977,26 @@ type channelMembership struct {
 	FeedName  string `json:"feedName"`
 }
 
-// getChannelMemberships returns all feeds that contain a channel with the given URL
-func (s *Server) getChannelMemberships(channelURL string) []channelMembership {
+// channelInfo contains the channel ID (if known) and feed memberships
+type channelInfo struct {
+	ChannelID   *int64             `json:"channelId"` // nil if channel not yet in system
+	Memberships []channelMembership `json:"memberships"`
+}
+
+// getChannelInfo returns the channel ID (if known) and all feeds that contain a channel with the given URL
+func (s *Server) getChannelInfo(channelURL string) channelInfo {
 	if channelURL == "" {
-		return []channelMembership{}
+		return channelInfo{Memberships: []channelMembership{}}
 	}
 
 	channel, err := s.db.GetChannelByURL(channelURL)
 	if err != nil || channel == nil {
-		return []channelMembership{}
+		return channelInfo{Memberships: []channelMembership{}}
 	}
 
 	feeds, err := s.db.GetFeedsByChannel(channel.ID)
 	if err != nil {
-		return []channelMembership{}
+		return channelInfo{ChannelID: &channel.ID, Memberships: []channelMembership{}}
 	}
 
 	memberships := make([]channelMembership, 0, len(feeds))
@@ -1003,7 +1011,7 @@ func (s *Server) getChannelMemberships(channelURL string) []channelMembership {
 			FeedName:  name,
 		})
 	}
-	return memberships
+	return channelInfo{ChannelID: &channel.ID, Memberships: memberships}
 }
 
 // handleAPINearbyVideos returns videos from the same feed, positioned after the current video

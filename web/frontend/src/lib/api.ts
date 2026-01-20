@@ -143,6 +143,7 @@ export async function getVideoInfo(id: string): Promise<{
 	channel: string;
 	streamURL: string;
 	channelURL: string;
+	channelId?: number;
 	channelMemberships: ChannelMembership[];
 	viewCount: number;
 	resumeFrom: number;
