@@ -1,44 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<settings version="2">
-    <section id="connection">
-        <category id="server" label="Server">
-            <group id="1">
-                <setting id="server_url" type="string" label="Server URL" help="Your Feeds server address (e.g., http://192.168.1.50:8080)">
-                    <default></default>
-                    <control type="edit" format="string"/>
-                </setting>
-            </group>
-        </category>
-    </section>
-    <section id="playback">
-        <category id="quality" label="Playback">
-            <group id="1">
-                <setting id="default_quality" type="integer" label="Default Quality" help="Quality to use for video playback">
-                    <default>0</default>
-                    <constraints>
-                        <options>
-                            <option label="Ask each time">0</option>
-                            <option label="720p">720</option>
-                            <option label="1080p">1080</option>
-                            <option label="Best available">9999</option>
-                        </options>
-                    </constraints>
-                    <control type="spinner" format="string"/>
-                </setting>
-                <setting id="sponsorblock_enabled" type="boolean" label="SponsorBlock" help="Auto-skip sponsor segments">
-                    <default>true</default>
-                    <control type="toggle"/>
-                </setting>
-                <setting id="videos_per_page" type="integer" label="Videos per page" help="Number of videos to load at once">
-                    <default>50</default>
-                    <constraints>
-                        <minimum>25</minimum>
-                        <maximum>100</maximum>
-                        <step>25</step>
-                    </constraints>
-                    <control type="slider" format="integer"/>
-                </setting>
-            </group>
-        </category>
-    </section>
+<settings>
+    <category label="Server">
+        <setting id="server_url" type="text" label="Server URL" default="" />
+    </category>
+    <category label="Playback">
+        <setting id="default_quality" type="enum" label="Default Quality" values="Ask each time|720p|1080p|Best available" default="0" />
+        <setting id="sponsorblock_enabled" type="bool" label="SponsorBlock" default="true" />
+        <setting id="videos_per_page" type="slider" label="Videos per page" default="50" range="25,25,100" option="int" />
+    </category>
 </settings>

@@ -35,10 +35,13 @@ def get_api() -> FeedsAPI:
 
 def get_settings() -> dict:
     """Get addon settings."""
+    # Map enum index to quality value: 0=Ask, 1=720p, 2=1080p, 3=Best
+    quality_map = {0: 0, 1: 720, 2: 1080, 3: 9999}
+    quality_index = int(ADDON.getSetting("default_quality") or 0)
     return {
         "server_url": ADDON.getSetting("server_url"),
-        "default_quality": int(ADDON.getSetting("default_quality") or 0),
-        "sponsorblock_enabled": ADDON.getSettingBool("sponsorblock_enabled"),
+        "default_quality": quality_map.get(quality_index, 0),
+        "sponsorblock_enabled": ADDON.getSetting("sponsorblock_enabled") == "true",
         "videos_per_page": int(ADDON.getSetting("videos_per_page") or 50),
     }
 
