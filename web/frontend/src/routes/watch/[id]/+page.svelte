@@ -28,8 +28,7 @@
 	let nearbyProgressMap = $state<Record<string, WatchProgress>>({});
 	let nearbyFeedId = $state(0);
 
-	// Up Next focus mode and infinite scroll
-	let upNextFocusMode = $state(false);
+	// Up Next infinite scroll
 	let upNextOffset = $state(0);
 	let upNextLoading = $state(false);
 	let upNextHasMore = $state(true);
@@ -255,7 +254,6 @@
 			nearbyFeedId = nearby.feedId;
 			upNextOffset = 0;
 			upNextHasMore = true;
-			upNextFocusMode = false;
 		} catch (e) {
 			console.warn('Failed to load nearby videos:', e);
 		}
@@ -528,20 +526,11 @@
 	function handleUpNextScroll(e: Event) {
 		const container = e.target as HTMLDivElement;
 
-		// Enter focus mode on first scroll
-		if (!upNextFocusMode) {
-			upNextFocusMode = true;
-		}
-
 		// Check if near bottom for infinite scroll
 		const scrollBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
 		if (scrollBottom < 200) {
 			loadMoreNearbyVideos();
 		}
-	}
-
-	function exitFocusMode() {
-		upNextFocusMode = false;
 	}
 </script>
 
@@ -555,7 +544,7 @@
 <div class="max-w-7xl mx-auto">
 	<div class="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-8">
 		<!-- Main Content -->
-		<div class="min-w-0 animate-fade-up" class:video-focus-mode={upNextFocusMode} style="opacity: 0;">
+		<div class="min-w-0 animate-fade-up" style="opacity: 0;">
 			<!-- Video Player -->
 			<div class="player-container mb-4">
 				{#if loading}
@@ -765,7 +754,6 @@
 				</div>
 			{/if}
 
-			{#if !upNextFocusMode}
 			<!-- Title & Channel -->
 			<div class="mb-6">
 				<h1 class="text-xl font-display font-semibold mb-3">
@@ -840,35 +828,23 @@
 				</svg>
 				Watch on YouTube
 			</a>
-			{/if}
 
 			<!-- Mobile Up Next -->
 			{#if nearbyVideos.length > 0}
 				<div class="mt-8 lg:hidden">
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
-						<div class="flex items-center gap-3">
-							{#if upNextFocusMode}
-								<button
-									onclick={exitFocusMode}
-									class="text-sm text-text-muted hover:text-white transition-colors"
-								>
-									Collapse
-								</button>
-							{/if}
-							{#if nearbyFeedId > 0}
-								<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
-									View Feed
-								</a>
-							{/if}
-						</div>
+						{#if nearbyFeedId > 0}
+							<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+								View Feed
+							</a>
+						{/if}
 					</div>
 					<div
-						class="space-y-3 mobile-up-next-list"
-						class:mobile-up-next-expanded={upNextFocusMode}
+						class="space-y-3 mobile-up-next-list max-h-96 overflow-y-auto"
 						onscroll={handleUpNextScroll}
 					>
-						{#each upNextFocusMode ? nearbyVideos : nearbyVideos.slice(0, 6) as video}
+						{#each nearbyVideos as video}
 							<a href="/watch/{video.id}" class="up-next-item group">
 								<div class="video-thumbnail w-36 flex-shrink-0">
 									{#if video.thumbnail}
@@ -896,18 +872,10 @@
 								<div class="animate-spin rounded-full h-6 w-6 border-2 border-emerald-500 border-t-transparent"></div>
 							</div>
 						{/if}
-						{#if upNextFocusMode && !upNextHasMore && nearbyVideos.length > 0}
+						{#if !upNextHasMore && nearbyVideos.length > 0}
 							<p class="text-center text-text-muted text-sm py-4">No more videos</p>
 						{/if}
 					</div>
-					{#if !upNextFocusMode && nearbyVideos.length > 6}
-						<button
-							onclick={() => upNextFocusMode = true}
-							class="mt-4 w-full py-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
-						>
-							Show more ({nearbyVideos.length - 6}+ videos)
-						</button>
-					{/if}
 				</div>
 			{/if}
 		</div>
@@ -916,31 +884,19 @@
 		{#if nearbyVideos.length > 0}
 			<aside
 				class="hidden lg:block animate-fade-up stagger-2 transition-all duration-300"
-				class:up-next-focus-mode={upNextFocusMode}
 				style="opacity: 0;"
 			>
-				<div class="sticky top-20" class:up-next-focus-sticky={upNextFocusMode}>
+				<div class="sticky top-20">
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
-						<div class="flex items-center gap-3">
-							{#if upNextFocusMode}
-								<button
-									onclick={exitFocusMode}
-									class="text-sm text-text-muted hover:text-white transition-colors"
-								>
-									Exit Focus
-								</button>
-							{/if}
-							{#if nearbyFeedId > 0}
-								<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
-									View Feed
-								</a>
-							{/if}
-						</div>
+						{#if nearbyFeedId > 0}
+							<a href="/feeds/{nearbyFeedId}" class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
+								View Feed
+							</a>
+						{/if}
 					</div>
 					<div
 						class="up-next-sidebar space-y-2 pr-2"
-						class:up-next-sidebar-focus={upNextFocusMode}
 						onscroll={handleUpNextScroll}
 					>
 						{#each nearbyVideos as video}
