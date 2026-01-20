@@ -7,6 +7,7 @@ export interface BottomSheetState {
 	channelId: number | null;
 	channelName: string;
 	feeds: Feed[];
+	memberFeedIds: number[]; // feeds this channel is already in
 }
 
 const initialState: BottomSheetState = {
@@ -14,7 +15,8 @@ const initialState: BottomSheetState = {
 	title: '',
 	channelId: null,
 	channelName: '',
-	feeds: []
+	feeds: [],
+	memberFeedIds: []
 };
 
 function createBottomSheetStore() {
@@ -27,13 +29,15 @@ function createBottomSheetStore() {
 			channelId: number;
 			channelName: string;
 			feeds: Feed[];
+			memberFeedIds: number[];
 		}) {
 			set({
 				open: true,
 				title: options.title,
 				channelId: options.channelId,
 				channelName: options.channelName,
-				feeds: options.feeds
+				feeds: options.feeds,
+				memberFeedIds: options.memberFeedIds
 			});
 		},
 		close() {
