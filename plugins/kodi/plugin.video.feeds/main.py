@@ -180,6 +180,8 @@ def list_history(offset: int = 0):
 
 def play_video(video_id: str):
     """Play a video with quality selection and download."""
+    from player import FeedsPlayer
+
     settings = get_settings()
 
     try:
@@ -233,7 +235,7 @@ def play_video(video_id: str):
 
             api.start_download(video_id, selected_quality)
 
-            # Poll for completion (simplified - in practice would use SSE)
+            # Poll for completion
             import time
             for i in range(120):  # Max 2 minutes
                 if pDialog.iscanceled():
@@ -248,10 +250,18 @@ def play_video(video_id: str):
 
             pDialog.close()
 
+        # Get SponsorBlock segments if enabled
+        segments = []
+        if settings["sponsorblock_enabled"]:
+            segments = api.get_segments(video_id)
+
         # Play the video
         stream_url = api.get_stream_url(video_id)
         li = xbmcgui.ListItem(path=stream_url)
         xbmcplugin.setResolvedUrl(HANDLE, True, li)
+
+        # Start custom player for monitoring
+        player = FeedsPlayer(api, video_id, segments, settings["sponsorblock_enabled"])
 
     except FeedsAPIError as e:
         xbmcgui.Dialog().ok("Feeds", f"Error: {e}")
