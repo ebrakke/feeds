@@ -1,5 +1,5 @@
 # Binaries
-feeds
+/feeds
 *.exe
 *.exe~
 *.dll
