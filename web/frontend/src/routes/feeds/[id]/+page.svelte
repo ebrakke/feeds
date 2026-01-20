@@ -6,6 +6,7 @@
 	import { getFeed, deleteFeed, removeChannelFromFeed, getShuffledVideos } from '$lib/api';
 	import type { Feed, Channel, Video, WatchProgress } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
+	import { navigationOrigin } from '$lib/stores/navigation';
 
 	const PAGE_SIZE = 100;
 
@@ -139,6 +140,17 @@
 		if (browser && !loading) {
 			window.addEventListener('scroll', handleScroll);
 			return () => window.removeEventListener('scroll', handleScroll);
+		}
+	});
+
+	// Set navigation origin when entering feed
+	$effect(() => {
+		if (feed) {
+			navigationOrigin.setOrigin({
+				feedId: feed.id,
+				feedName: feed.name,
+				path: `/feeds/${feed.id}`
+			});
 		}
 	});
 
