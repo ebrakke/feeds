@@ -332,6 +332,8 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var newVideos int
+
 	// Check shorts status only for videos that don't already have it
 	if len(allVideos) > 0 {
 		videoIDs := make([]string, len(allVideos))
@@ -368,21 +370,30 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 		for id, isShort := range existingStatus {
 			newShortsStatus[id] = isShort
 		}
-
 		for i := range allVideos {
 			if isShort, ok := newShortsStatus[allVideos[i].ID]; ok {
 				allVideos[i].IsShort = &isShort
 			}
-			if _, err := s.db.UpsertVideo(&allVideos[i]); err != nil {
+			isNew, err := s.db.UpsertVideo(&allVideos[i])
+			if err != nil {
 				log.Printf("Failed to save video %s: %v", allVideos[i].ID, err)
 				continue
 			}
 			totalVideos++
+			if isNew {
+				newVideos++
+			}
+		}
+
+		// Update new video count for this feed
+		if err := s.db.UpdateNewVideoCount(id, newVideos); err != nil {
+			log.Printf("Failed to update new video count for feed %d: %v", id, err)
 		}
 	}
 
 	jsonResponse(w, map[string]any{
 		"videosFound": totalVideos,
+		"newVideos":   newVideos,
 		"channels":    len(channels),
 		"errors":      errors,
 	})
