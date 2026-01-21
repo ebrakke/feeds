@@ -15,11 +15,12 @@ const (
 
 const (
 	// Buffer thresholds for streaming (bytes needed for ~10 sec of video)
+	bufferThreshold4K    = 20 * 1024 * 1024 // ~20 MB for 4K (2160p)
+	bufferThreshold1440p = 12 * 1024 * 1024 // ~12 MB for 1440p
 	bufferThreshold1080p = 8 * 1024 * 1024  // ~8 MB for 1080p
 	bufferThreshold720p  = 4 * 1024 * 1024  // ~4 MB for 720p
 	bufferThreshold480p  = 2 * 1024 * 1024  // ~2 MB for 480p
 	bufferThreshold360p  = 1 * 1024 * 1024  // ~1 MB for 360p
-	bufferThreshold4K    = 20 * 1024 * 1024 // ~20 MB for 4K
 )
 
 // GetBufferThreshold returns the bytes needed to buffer ~10 seconds of video
@@ -27,6 +28,8 @@ func GetBufferThreshold(quality string) int64 {
 	switch quality {
 	case "2160", "4K", "best":
 		return bufferThreshold4K
+	case "1440":
+		return bufferThreshold1440p
 	case "1080":
 		return bufferThreshold1080p
 	case "720":

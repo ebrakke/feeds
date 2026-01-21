@@ -1808,7 +1808,7 @@ func (s *Server) handleGetQualities(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 
 	// Available qualities (hardcoded for now, could query yt-dlp)
-	available := []string{"360", "480", "720", "1080"}
+	available := []string{"360", "480", "720", "1080", "1440", "2160"}
 
 	// Check which are cached
 	var cached []string
