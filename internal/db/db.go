@@ -405,6 +405,30 @@ func (db *DB) GetFeedsByChannel(channelID int64) ([]models.Feed, error) {
 	return feeds, rows.Err()
 }
 
+// ReorderFeeds updates sort_order for feeds based on the provided order.
+// feedIDs should contain all feed IDs in the desired display order.
+func (db *DB) ReorderFeeds(feedIDs []int64) error {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("UPDATE feeds SET sort_order = ? WHERE id = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for i, id := range feedIDs {
+		if _, err := stmt.Exec(i, id); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // RemoveChannelFromFeed removes a channel from a feed.
 // If the channel has no more feeds, it and its videos are deleted.
 // Returns true if the channel was completely deleted.
