@@ -129,10 +129,16 @@ func (db *DB) CreateFeed(name string) (*models.Feed, error) {
 }
 
 func (db *DB) CreateFeedWithMetadata(name, description, author, tags string) (*models.Feed, error) {
+	// Get max sort_order to put new feed at end
+	var maxOrder int
+	if err := db.conn.QueryRow("SELECT COALESCE(MAX(sort_order), -1) FROM feeds").Scan(&maxOrder); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	result, err := db.conn.Exec(
-		"INSERT INTO feeds (name, description, author, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-		name, description, author, tags, now, now,
+		"INSERT INTO feeds (name, description, author, tags, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		name, description, author, tags, maxOrder+1, now, now,
 	)
 	if err != nil {
 		return nil, err
@@ -149,6 +155,7 @@ func (db *DB) CreateFeedWithMetadata(name, description, author, tags string) (*m
 		Description: description,
 		Author:      author,
 		Tags:        tags,
+		SortOrder:   maxOrder + 1,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}, nil
