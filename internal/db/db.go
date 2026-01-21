@@ -483,7 +483,8 @@ func (db *DB) RemoveChannelFromFeed(feedID, channelID int64) (bool, error) {
 
 // Video operations
 
-func (db *DB) UpsertVideo(v *models.Video) error {
+// UpsertVideo inserts or updates a video. Returns true if this was a new insert.
+func (db *DB) UpsertVideo(v *models.Video) (bool, error) {
 	var isShort *int
 	if v.IsShort != nil {
 		val := 0
@@ -493,7 +494,12 @@ func (db *DB) UpsertVideo(v *models.Video) error {
 		isShort = &val
 	}
 
-	_, err := db.conn.Exec(`
+	// Check if video exists first
+	var exists bool
+	err := db.conn.QueryRow("SELECT 1 FROM videos WHERE id = ?", v.ID).Scan(&exists)
+	isInsert := err == sql.ErrNoRows
+
+	_, err = db.conn.Exec(`
 		INSERT INTO videos (id, channel_id, title, channel_name, thumbnail, duration, is_short, published, url)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -509,7 +515,7 @@ func (db *DB) UpsertVideo(v *models.Video) error {
 				ELSE videos.is_short
 			END
 	`, v.ID, v.ChannelID, v.Title, v.ChannelName, v.Thumbnail, v.Duration, isShort, v.Published, v.URL)
-	return err
+	return isInsert, err
 }
 
 func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, int, error) {
