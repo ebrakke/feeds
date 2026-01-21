@@ -8,9 +8,13 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	// Drag state
+	// Drag state (desktop)
 	let draggedIndex = $state<number | null>(null);
 	let dragOverIndex = $state<number | null>(null);
+
+	// Edit mode state (mobile-friendly reordering)
+	let editMode = $state(false);
+	let selectedIndex = $state<number | null>(null);
 
 	onMount(async () => {
 		try {
@@ -27,6 +31,7 @@
 		navigationOrigin.clear();
 	});
 
+	// Desktop drag handlers
 	function handleDragStart(index: number) {
 		draggedIndex = index;
 	}
@@ -47,14 +52,47 @@
 			return;
 		}
 
-		// Reorder locally first (optimistic update)
-		const newFeeds = [...feeds];
-		const [moved] = newFeeds.splice(draggedIndex, 1);
-		newFeeds.splice(index, 0, moved);
-		feeds = newFeeds;
-
+		await moveItem(draggedIndex, index);
 		draggedIndex = null;
 		dragOverIndex = null;
+	}
+
+	function handleDragEnd() {
+		draggedIndex = null;
+		dragOverIndex = null;
+	}
+
+	// Edit mode handlers
+	function toggleEditMode() {
+		editMode = !editMode;
+		if (!editMode) {
+			selectedIndex = null;
+		}
+	}
+
+	function selectFeed(index: number) {
+		if (!editMode) return;
+		selectedIndex = selectedIndex === index ? null : index;
+	}
+
+	async function moveUp(index: number) {
+		if (index === 0) return;
+		await moveItem(index, index - 1);
+		selectedIndex = index - 1;
+	}
+
+	async function moveDown(index: number) {
+		if (index >= feeds.length - 1) return;
+		await moveItem(index, index + 1);
+		selectedIndex = index + 1;
+	}
+
+	async function moveItem(fromIndex: number, toIndex: number) {
+		// Reorder locally first (optimistic update)
+		const newFeeds = [...feeds];
+		const [moved] = newFeeds.splice(fromIndex, 1);
+		newFeeds.splice(toIndex, 0, moved);
+		feeds = newFeeds;
 
 		// Persist to backend
 		try {
@@ -64,12 +102,8 @@
 			// Revert on error by re-fetching
 			error = e instanceof Error ? e.message : 'Failed to reorder feeds';
 			feeds = await getFeeds();
+			selectedIndex = null;
 		}
-	}
-
-	function handleDragEnd() {
-		draggedIndex = null;
-		dragOverIndex = null;
 	}
 </script>
 
@@ -116,10 +150,21 @@
 		</a>
 	</div>
 {:else}
+	<!-- Header with Edit button -->
+	<div class="flex items-center justify-between mb-4">
+		<h1 class="text-lg font-medium text-text-primary">Feeds</h1>
+		<button
+			onclick={toggleEditMode}
+			class="text-sm font-medium {editMode ? 'text-emerald-500' : 'text-text-muted hover:text-text-secondary'} transition-colors"
+		>
+			{editMode ? 'Done' : 'Edit'}
+		</button>
+	</div>
+
 	<div class="space-y-2">
 		{#each feeds as feed, index (feed.id)}
 			<div
-				draggable="true"
+				draggable={!editMode}
 				ondragstart={() => handleDragStart(index)}
 				ondragover={(e) => handleDragOver(e, index)}
 				ondragleave={handleDragLeave}
@@ -131,40 +176,81 @@
 				{#if dragOverIndex === index && draggedIndex !== null && draggedIndex !== index}
 					<div class="h-1 bg-emerald-500 rounded-full mb-2 transition-all"></div>
 				{/if}
-				<a
-					href="/feeds/{feed.id}"
-					class="card flex items-center justify-between p-4 hover:bg-elevated transition-colors"
-				>
-					<div class="flex items-center gap-3 min-w-0">
-						<!-- Drag handle -->
-						<div class="w-6 h-6 flex items-center justify-center text-text-muted cursor-grab active:cursor-grabbing flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-								<circle cx="9" cy="6" r="1.5"/>
-								<circle cx="15" cy="6" r="1.5"/>
-								<circle cx="9" cy="12" r="1.5"/>
-								<circle cx="15" cy="12" r="1.5"/>
-								<circle cx="9" cy="18" r="1.5"/>
-								<circle cx="15" cy="18" r="1.5"/>
-							</svg>
+
+				{#if editMode}
+					<!-- Edit mode: show reorder controls -->
+					<div class="card flex items-center justify-between p-4">
+						<div class="flex items-center gap-3 min-w-0">
+							<!-- Feed icon -->
+							<div class="w-10 h-10 rounded-lg bg-gradient-to-br {feed.is_system ? 'from-amber-500/20 to-amber-600/20' : 'from-violet-500/20 to-violet-600/20'} flex items-center justify-center flex-shrink-0">
+								<svg class="w-5 h-5 {feed.is_system ? 'text-amber-500' : 'text-violet-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+								</svg>
+							</div>
+							<!-- Feed name -->
+							<span class="font-medium text-text-primary truncate">{feed.name}</span>
 						</div>
-						<!-- Feed icon -->
-						<div class="w-10 h-10 rounded-lg bg-gradient-to-br {feed.is_system ? 'from-amber-500/20 to-amber-600/20' : 'from-violet-500/20 to-violet-600/20'} flex items-center justify-center flex-shrink-0">
-							<svg class="w-5 h-5 {feed.is_system ? 'text-amber-500' : 'text-violet-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-							</svg>
+						<!-- Reorder buttons -->
+						<div class="flex items-center gap-1">
+							<button
+								onclick={() => moveUp(index)}
+								disabled={index === 0}
+								class="p-2 rounded-lg hover:bg-elevated disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								aria-label="Move up"
+							>
+								<svg class="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+								</svg>
+							</button>
+							<button
+								onclick={() => moveDown(index)}
+								disabled={index >= feeds.length - 1}
+								class="p-2 rounded-lg hover:bg-elevated disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								aria-label="Move down"
+							>
+								<svg class="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</button>
 						</div>
-						<!-- Feed name and badge -->
-						<span class="font-medium text-text-primary truncate">{feed.name}</span>
-						{#if feed.new_video_count > 0}
-							<span class="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded-full flex-shrink-0">
-								{feed.new_video_count}
-							</span>
-						{/if}
 					</div>
-					<svg class="w-5 h-5 text-text-muted group-hover:text-text-secondary transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-					</svg>
-				</a>
+				{:else}
+					<!-- Normal mode: clickable link -->
+					<a
+						href="/feeds/{feed.id}"
+						class="card flex items-center justify-between p-4 hover:bg-elevated transition-colors"
+					>
+						<div class="flex items-center gap-3 min-w-0">
+							<!-- Drag handle (desktop only) -->
+							<div class="hidden sm:flex w-6 h-6 items-center justify-center text-text-muted cursor-grab active:cursor-grabbing flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+									<circle cx="9" cy="6" r="1.5"/>
+									<circle cx="15" cy="6" r="1.5"/>
+									<circle cx="9" cy="12" r="1.5"/>
+									<circle cx="15" cy="12" r="1.5"/>
+									<circle cx="9" cy="18" r="1.5"/>
+									<circle cx="15" cy="18" r="1.5"/>
+								</svg>
+							</div>
+							<!-- Feed icon -->
+							<div class="w-10 h-10 rounded-lg bg-gradient-to-br {feed.is_system ? 'from-amber-500/20 to-amber-600/20' : 'from-violet-500/20 to-violet-600/20'} flex items-center justify-center flex-shrink-0">
+								<svg class="w-5 h-5 {feed.is_system ? 'text-amber-500' : 'text-violet-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+								</svg>
+							</div>
+							<!-- Feed name and badge -->
+							<span class="font-medium text-text-primary truncate">{feed.name}</span>
+							{#if feed.new_video_count > 0}
+								<span class="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded-full flex-shrink-0">
+									{feed.new_video_count}
+								</span>
+							{/if}
+						</div>
+						<svg class="w-5 h-5 text-text-muted group-hover:text-text-secondary transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+						</svg>
+					</a>
+				{/if}
 			</div>
 		{/each}
 
