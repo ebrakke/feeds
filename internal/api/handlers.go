@@ -1819,11 +1819,11 @@ func (s *Server) handleGetQualities(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check which is downloading
+	// Check which is downloading (only explicit downloads, not streaming)
 	var downloading *string
 	status := s.downloadManager.GetStatus(videoID)
 	for quality, d := range status {
-		if d.Status == "downloading" || d.Status == "muxing" {
+		if (d.Status == "downloading" || d.Status == "muxing") && !d.IsStreaming {
 			downloading = &quality
 			break
 		}

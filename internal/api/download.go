@@ -22,17 +22,18 @@ type DownloadManager struct {
 
 // Download represents an in-progress download
 type Download struct {
-	VideoID     string
-	Quality     string
-	Status      string // "downloading", "muxing", "complete", "error"
-	Progress    float64
-	Error       string
-	StartedAt   time.Time
-	FilePath    string        // Path to the file being downloaded
-	FileSize    int64         // Current file size (updated during download)
-	TotalSize   int64         // Expected total size (if known)
-	bufferReady chan struct{} // Closed when buffer threshold is reached
-	mu          sync.Mutex    // Protects FileSize updates
+	VideoID      string
+	Quality      string
+	Status       string // "downloading", "muxing", "complete", "error"
+	Progress     float64
+	Error        string
+	StartedAt    time.Time
+	FilePath     string        // Path to the file being downloaded
+	FileSize     int64         // Current file size (updated during download)
+	TotalSize    int64         // Expected total size (if known)
+	IsStreaming  bool          // True if triggered by streaming, false if explicit download
+	bufferReady  chan struct{} // Closed when buffer threshold is reached
+	mu           sync.Mutex    // Protects FileSize updates
 }
 
 // WaitForBuffer blocks until the download has buffered enough data or context is cancelled.
@@ -342,13 +343,14 @@ func (dm *DownloadManager) GetOrStartDownload(videoID, quality string) *Download
 		return d
 	}
 
-	// Create new download
+	// Create new download (streaming-triggered)
 	d := &Download{
 		VideoID:     videoID,
 		Quality:     quality,
 		Status:      "downloading",
 		StartedAt:   time.Now(),
 		FilePath:    dm.cache.CachePath(cacheKey) + ".tmp",
+		IsStreaming: true,
 		bufferReady: make(chan struct{}),
 	}
 	dm.active[key] = d
