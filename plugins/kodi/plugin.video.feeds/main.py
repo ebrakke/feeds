@@ -232,7 +232,8 @@ def play_video(video_id: str):
                 selected_quality = available[-1] if available else cached[-1]
 
         # Check if already cached
-        if selected_quality not in cached:
+        is_cached = any(str(c) == str(selected_quality) for c in cached)
+        if not is_cached:
             # Need to download first
             pDialog = xbmcgui.DialogProgress()
             pDialog.create("Preparing Video", "Starting download...")
@@ -249,7 +250,8 @@ def play_video(video_id: str):
 
                 # Check if now cached
                 new_qualities = api.get_video_qualities(video_id)
-                if selected_quality in (new_qualities.get("cached") or []):
+                new_cached = new_qualities.get("cached") or []
+                if any(str(c) == str(selected_quality) for c in new_cached):
                     break
 
             pDialog.close()
