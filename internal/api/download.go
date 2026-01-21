@@ -292,6 +292,48 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	})
 }
 
+// GetOrStartDownload returns an existing download or starts a new one.
+// Unlike StartDownload, this always returns the Download pointer for tracking.
+func (dm *DownloadManager) GetOrStartDownload(videoID, quality string) *Download {
+	key := downloadKey(videoID, quality)
+	cacheKey := CacheKey(videoID, quality)
+
+	// Check if already cached (complete)
+	if cachedPath, ok := dm.cache.Get(cacheKey); ok {
+		return &Download{
+			VideoID:  videoID,
+			Quality:  quality,
+			Status:   "complete",
+			FilePath: cachedPath,
+			FileSize: GetFileSize(cachedPath),
+		}
+	}
+
+	dm.mu.Lock()
+	// Check if already downloading
+	if d, exists := dm.active[key]; exists {
+		dm.mu.Unlock()
+		return d
+	}
+
+	// Create new download
+	d := &Download{
+		VideoID:     videoID,
+		Quality:     quality,
+		Status:      "downloading",
+		StartedAt:   time.Now(),
+		FilePath:    dm.cache.CachePath(cacheKey) + ".tmp",
+		bufferReady: make(chan struct{}),
+	}
+	dm.active[key] = d
+	dm.mu.Unlock()
+
+	// Start download in background
+	go dm.runDownload(videoID, quality, key, cacheKey)
+
+	return d
+}
+
 func (dm *DownloadManager) setError(key, videoID, quality, errMsg string) {
 	dm.mu.Lock()
 	if d, exists := dm.active[key]; exists {
