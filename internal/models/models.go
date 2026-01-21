@@ -3,14 +3,16 @@ package models
 import "time"
 
 type Feed struct {
-	ID          int64     `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Author      string    `json:"author,omitempty"`
-	Tags        string    `json:"tags,omitempty"` // comma-separated
-	IsSystem    bool      `json:"is_system"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description,omitempty"`
+	Author        string    `json:"author,omitempty"`
+	Tags          string    `json:"tags,omitempty"` // comma-separated
+	IsSystem      bool      `json:"is_system"`
+	SortOrder     int       `json:"sort_order"`
+	NewVideoCount int       `json:"new_video_count"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Channel struct {
