@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -21,12 +22,67 @@ type DownloadManager struct {
 
 // Download represents an in-progress download
 type Download struct {
-	VideoID   string
-	Quality   string
-	Status    string // "downloading", "muxing", "complete", "error"
-	Progress  float64
-	Error     string
-	StartedAt time.Time
+	VideoID     string
+	Quality     string
+	Status      string // "downloading", "muxing", "complete", "error"
+	Progress    float64
+	Error       string
+	StartedAt   time.Time
+	FilePath    string        // Path to the file being downloaded
+	FileSize    int64         // Current file size (updated during download)
+	TotalSize   int64         // Expected total size (if known)
+	bufferReady chan struct{} // Closed when buffer threshold is reached
+	mu          sync.Mutex    // Protects FileSize updates
+}
+
+// WaitForBuffer blocks until the download has buffered enough data or context is cancelled.
+// Returns nil when buffer is ready, or an error if cancelled/failed.
+func (d *Download) WaitForBuffer(ctx context.Context, threshold int64) error {
+	// Check if already have enough data
+	d.mu.Lock()
+	if d.FileSize >= threshold {
+		d.mu.Unlock()
+		return nil
+	}
+	d.mu.Unlock()
+
+	// Wait for buffer to be ready
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-d.bufferReady:
+		return nil
+	}
+}
+
+// UpdateFileSize updates the current file size and signals buffer ready if threshold met
+func (d *Download) UpdateFileSize(size int64, threshold int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.FileSize = size
+
+	// Signal buffer ready if we've hit the threshold and haven't already
+	if size >= threshold && d.bufferReady != nil {
+		select {
+		case <-d.bufferReady:
+			// Already closed
+		default:
+			close(d.bufferReady)
+		}
+	}
+}
+
+// GetFilePath returns the path to the download file
+func (d *Download) GetFilePath() string {
+	return d.FilePath
+}
+
+// GetFileSize returns the current downloaded size
+func (d *Download) GetFileSize() int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.FileSize
 }
 
 // DownloadProgress is sent to SSE clients
