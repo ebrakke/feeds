@@ -71,8 +71,8 @@ func (db *DB) EnsureInboxExists() (*models.Feed, error) {
 	// Check if Inbox already exists
 	var f models.Feed
 	err := db.conn.QueryRow(
-		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE is_system = TRUE AND name = 'Inbox'",
-	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, name, description, author, tags, is_system, sort_order, new_video_count, created_at, updated_at FROM feeds WHERE is_system = TRUE AND name = 'Inbox'",
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.SortOrder, &f.NewVideoCount, &f.CreatedAt, &f.UpdatedAt)
 	if err == nil {
 		return &f, nil
 	}
@@ -80,11 +80,16 @@ func (db *DB) EnsureInboxExists() (*models.Feed, error) {
 		return nil, err
 	}
 
-	// Create Inbox
+	// Create Inbox - get max sort_order first
+	var maxOrder int
+	if err := db.conn.QueryRow("SELECT COALESCE(MAX(sort_order), -1) FROM feeds").Scan(&maxOrder); err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	result, err := db.conn.Exec(
-		"INSERT INTO feeds (name, description, author, tags, is_system, created_at, updated_at) VALUES ('Inbox', '', '', '', TRUE, ?, ?)",
-		now, now,
+		"INSERT INTO feeds (name, description, author, tags, is_system, sort_order, created_at, updated_at) VALUES ('Inbox', '', '', '', TRUE, ?, ?, ?)",
+		maxOrder+1, now, now,
 	)
 	if err != nil {
 		return nil, err
@@ -99,6 +104,7 @@ func (db *DB) EnsureInboxExists() (*models.Feed, error) {
 		ID:        id,
 		Name:      "Inbox",
 		IsSystem:  true,
+		SortOrder: maxOrder + 1,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}, nil
@@ -108,8 +114,8 @@ func (db *DB) EnsureInboxExists() (*models.Feed, error) {
 func (db *DB) GetInbox() (*models.Feed, error) {
 	var f models.Feed
 	err := db.conn.QueryRow(
-		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE is_system = TRUE AND name = 'Inbox'",
-	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, name, description, author, tags, is_system, sort_order, new_video_count, created_at, updated_at FROM feeds WHERE is_system = TRUE AND name = 'Inbox'",
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.SortOrder, &f.NewVideoCount, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +155,7 @@ func (db *DB) CreateFeedWithMetadata(name, description, author, tags string) (*m
 }
 
 func (db *DB) GetFeeds() ([]models.Feed, error) {
-	rows, err := db.conn.Query("SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds ORDER BY is_system DESC, name")
+	rows, err := db.conn.Query("SELECT id, name, description, author, tags, is_system, sort_order, new_video_count, created_at, updated_at FROM feeds ORDER BY sort_order ASC, name ASC")
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +164,7 @@ func (db *DB) GetFeeds() ([]models.Feed, error) {
 	var feeds []models.Feed
 	for rows.Next() {
 		var f models.Feed
-		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.SortOrder, &f.NewVideoCount, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		feeds = append(feeds, f)
@@ -169,8 +175,8 @@ func (db *DB) GetFeeds() ([]models.Feed, error) {
 func (db *DB) GetFeed(id int64) (*models.Feed, error) {
 	var f models.Feed
 	err := db.conn.QueryRow(
-		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE id = ?", id,
-	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, name, description, author, tags, is_system, sort_order, new_video_count, created_at, updated_at FROM feeds WHERE id = ?", id,
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.SortOrder, &f.NewVideoCount, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -211,8 +217,8 @@ func (db *DB) DeleteFeed(id int64) error {
 func (db *DB) GetOrCreateFeed(name string) (*models.Feed, error) {
 	var f models.Feed
 	err := db.conn.QueryRow(
-		"SELECT id, name, description, author, tags, is_system, created_at, updated_at FROM feeds WHERE name = ?", name,
-	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt)
+		"SELECT id, name, description, author, tags, is_system, sort_order, new_video_count, created_at, updated_at FROM feeds WHERE name = ?", name,
+	).Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.SortOrder, &f.NewVideoCount, &f.CreatedAt, &f.UpdatedAt)
 	if err == nil {
 		return &f, nil
 	}
@@ -370,11 +376,11 @@ func (db *DB) GetChannelsByURL(url string) ([]models.Channel, error) {
 // GetFeedsByChannel returns all feeds that contain a channel
 func (db *DB) GetFeedsByChannel(channelID int64) ([]models.Feed, error) {
 	rows, err := db.conn.Query(`
-		SELECT f.id, f.name, f.description, f.author, f.tags, f.is_system, f.created_at, f.updated_at
+		SELECT f.id, f.name, f.description, f.author, f.tags, f.is_system, f.sort_order, f.new_video_count, f.created_at, f.updated_at
 		FROM feeds f
 		JOIN feed_channels fc ON f.id = fc.feed_id
 		WHERE fc.channel_id = ?
-		ORDER BY f.name
+		ORDER BY f.sort_order ASC, f.name ASC
 	`, channelID)
 	if err != nil {
 		return nil, err
@@ -384,7 +390,7 @@ func (db *DB) GetFeedsByChannel(channelID int64) ([]models.Feed, error) {
 	var feeds []models.Feed
 	for rows.Next() {
 		var f models.Feed
-		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Author, &f.Tags, &f.IsSystem, &f.SortOrder, &f.NewVideoCount, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		feeds = append(feeds, f)
