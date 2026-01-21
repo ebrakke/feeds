@@ -132,10 +132,12 @@ func (dm *DownloadManager) StartDownload(videoID, quality string) (*Download, er
 
 	// Create new download
 	d := &Download{
-		VideoID:   videoID,
-		Quality:   quality,
-		Status:    "downloading",
-		StartedAt: time.Now(),
+		VideoID:     videoID,
+		Quality:     quality,
+		Status:      "downloading",
+		StartedAt:   time.Now(),
+		FilePath:    dm.cache.CachePath(cacheKey),
+		bufferReady: make(chan struct{}),
 	}
 	dm.active[key] = d
 	dm.mu.Unlock()
