@@ -1182,6 +1182,12 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, downloadURL, http.StatusFound)
 }
 
+// selectBestQuality returns the best quality to use for "auto" mode.
+// Defaults to 1080p as a good balance of quality and download speed.
+func selectBestQuality() string {
+	return "1080"
+}
+
 func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 	quality := r.URL.Query().Get("quality")
