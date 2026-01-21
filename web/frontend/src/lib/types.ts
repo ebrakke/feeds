@@ -5,6 +5,8 @@ export interface Feed {
 	author?: string;
 	tags?: string;
 	is_system?: boolean;
+	sort_order: number;
+	new_video_count: number;
 	created_at: string;
 	updated_at: string;
 }
