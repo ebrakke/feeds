@@ -262,7 +262,7 @@ def play_video(video_id: str):
             segments = api.get_segments(video_id)
 
         # Play the video
-        stream_url = api.get_stream_url(video_id)
+        stream_url = api.get_stream_url(video_id, selected_quality)
         li = xbmcgui.ListItem(path=stream_url)
         xbmcplugin.setResolvedUrl(HANDLE, True, li)
 

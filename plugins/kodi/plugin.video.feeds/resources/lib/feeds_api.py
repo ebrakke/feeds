@@ -59,8 +59,10 @@ class FeedsAPI:
         """Start server-side download of video."""
         return self._request("POST", f"/api/videos/{video_id}/download", {"quality": quality})
 
-    def get_stream_url(self, video_id: str) -> str:
+    def get_stream_url(self, video_id: str, quality: str = None) -> str:
         """Get stream URL for a video."""
+        if quality:
+            return f"{self.base_url}/api/stream/{video_id}?quality={quality}"
         return f"{self.base_url}/api/stream/{video_id}"
 
     def get_segments(self, video_id: str) -> list:
