@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+    <category label="Server">
+        <setting id="server_url" type="text" label="Server URL" default="" />
+    </category>
+    <category label="Playback">
+        <setting id="default_quality" type="enum" label="Default Quality" values="Ask each time|720p|1080p|Best available" default="0" />
+        <setting id="sponsorblock_enabled" type="bool" label="SponsorBlock" default="true" />
+        <setting id="videos_per_page" type="slider" label="Videos per page" default="50" range="25,25,100" option="int" />
+    </category>
+</settings>

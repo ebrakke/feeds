@@ -55,6 +55,10 @@ web/frontend/e2e/results/
 web/frontend/playwright-report/
 web/frontend/test-results/
 
+# Python
+__pycache__/
+*.pyc
+
 # Claude settings
 .claude/
 .playwright-mcp/
