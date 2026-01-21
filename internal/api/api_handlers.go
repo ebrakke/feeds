@@ -373,7 +373,7 @@ func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 			if isShort, ok := newShortsStatus[allVideos[i].ID]; ok {
 				allVideos[i].IsShort = &isShort
 			}
-			if err := s.db.UpsertVideo(&allVideos[i]); err != nil {
+			if _, err := s.db.UpsertVideo(&allVideos[i]); err != nil {
 				log.Printf("Failed to save video %s: %v", allVideos[i].ID, err)
 				continue
 			}
@@ -482,7 +482,7 @@ func (s *Server) handleAPIAddChannel(w http.ResponseWriter, r *http.Request) {
 				if isShort, ok := shortsStatus[videos[i].ID]; ok {
 					videos[i].IsShort = &isShort
 				}
-				s.db.UpsertVideo(&videos[i])
+				_, _ = s.db.UpsertVideo(&videos[i])
 			}
 		}
 	}
@@ -600,7 +600,7 @@ func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request)
 			if isShort, ok := shortsStatus[videos[i].ID]; ok {
 				videos[i].IsShort = &isShort
 			}
-			if err := s.db.UpsertVideo(&videos[i]); err != nil {
+			if _, err := s.db.UpsertVideo(&videos[i]); err != nil {
 				log.Printf("Failed to save video %s: %v", videos[i].ID, err)
 				continue
 			}

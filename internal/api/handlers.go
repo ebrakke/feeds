@@ -572,7 +572,7 @@ func (s *Server) handleRefreshFeed(w http.ResponseWriter, r *http.Request) {
 			if isShort, ok := shortsStatus[allVideos[i].ID]; ok {
 				allVideos[i].IsShort = &isShort
 			}
-			if err := s.db.UpsertVideo(&allVideos[i]); err != nil {
+			if _, err := s.db.UpsertVideo(&allVideos[i]); err != nil {
 				log.Printf("Failed to save video %s: %v", allVideos[i].ID, err)
 				continue
 			}
@@ -731,7 +731,7 @@ func (s *Server) handleRefreshFeedStream(w http.ResponseWriter, r *http.Request)
 				if isShort, ok := shortsStatus[res.videos[i].ID]; ok {
 					res.videos[i].IsShort = &isShort
 				}
-				if err := s.db.UpsertVideo(&res.videos[i]); err != nil {
+				if _, err := s.db.UpsertVideo(&res.videos[i]); err != nil {
 					log.Printf("Failed to save video %s: %v", res.videos[i].ID, err)
 					continue
 				}

@@ -107,7 +107,7 @@ func (s *VideoRefreshScheduler) refreshAllChannels() {
 			if isShort, ok := shortsStatus[videos[j].ID]; ok {
 				videos[j].IsShort = &isShort
 			}
-			if err := s.db.UpsertVideo(&videos[j]); err != nil {
+			if _, err := s.db.UpsertVideo(&videos[j]); err != nil {
 				log.Printf("[scheduler] Failed to save video %s: %v", videos[j].ID, err)
 				continue
 			}
