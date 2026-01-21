@@ -44,14 +44,40 @@ func (d *Download) WaitForBuffer(ctx context.Context, threshold int64) error {
 		d.mu.Unlock()
 		return nil
 	}
+	if d.Status == "error" {
+		err := d.Error
+		d.mu.Unlock()
+		return fmt.Errorf("download failed: %s", err)
+	}
+	if d.Status == "complete" {
+		d.mu.Unlock()
+		return nil
+	}
 	d.mu.Unlock()
 
-	// Wait for buffer to be ready
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-d.bufferReady:
-		return nil
+	// Poll for buffer ready with timeout
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-d.bufferReady:
+			return nil
+		case <-ticker.C:
+			d.mu.Lock()
+			if d.Status == "error" {
+				err := d.Error
+				d.mu.Unlock()
+				return fmt.Errorf("download failed: %s", err)
+			}
+			if d.Status == "complete" || d.FileSize >= threshold {
+				d.mu.Unlock()
+				return nil
+			}
+			d.mu.Unlock()
+		}
 	}
 }
 
