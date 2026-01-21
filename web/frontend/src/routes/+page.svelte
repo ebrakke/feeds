@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getFeeds } from '$lib/api';
+	import { getFeeds, reorderFeeds } from '$lib/api';
 	import type { Feed } from '$lib/types';
 	import { navigationOrigin } from '$lib/stores/navigation';
 
@@ -8,17 +8,9 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
-	// Separate frequency feeds (from watch history import) from user-created feeds
-	// Frequency feeds typically have names like "Heavy Rotation", "Regulars", etc.
-	const FREQUENCY_FEED_NAMES = ['Heavy Rotation', 'Regulars', 'Frequent', 'Occasional', 'A Few Times', 'Discovered'];
-
-	let frequencyFeeds = $derived(
-		feeds.filter(f => !f.is_system && FREQUENCY_FEED_NAMES.includes(f.name))
-	);
-
-	let userFeeds = $derived(
-		feeds.filter(f => !f.is_system && !FREQUENCY_FEED_NAMES.includes(f.name))
-	);
+	// Drag state
+	let draggedIndex = $state<number | null>(null);
+	let dragOverIndex = $state<number | null>(null);
 
 	onMount(async () => {
 		try {
@@ -34,6 +26,51 @@
 	$effect(() => {
 		navigationOrigin.clear();
 	});
+
+	function handleDragStart(index: number) {
+		draggedIndex = index;
+	}
+
+	function handleDragOver(e: DragEvent, index: number) {
+		e.preventDefault();
+		dragOverIndex = index;
+	}
+
+	function handleDragLeave() {
+		dragOverIndex = null;
+	}
+
+	async function handleDrop(index: number) {
+		if (draggedIndex === null || draggedIndex === index) {
+			draggedIndex = null;
+			dragOverIndex = null;
+			return;
+		}
+
+		// Reorder locally first (optimistic update)
+		const newFeeds = [...feeds];
+		const [moved] = newFeeds.splice(draggedIndex, 1);
+		newFeeds.splice(index, 0, moved);
+		feeds = newFeeds;
+
+		draggedIndex = null;
+		dragOverIndex = null;
+
+		// Persist to backend
+		try {
+			const feedIds = newFeeds.map(f => f.id);
+			await reorderFeeds(feedIds);
+		} catch (e) {
+			// Revert on error by re-fetching
+			error = e instanceof Error ? e.message : 'Failed to reorder feeds';
+			feeds = await getFeeds();
+		}
+	}
+
+	function handleDragEnd() {
+		draggedIndex = null;
+		dragOverIndex = null;
+	}
 </script>
 
 <svelte:head>
@@ -79,63 +116,57 @@
 		</a>
 	</div>
 {:else}
-	<div class="space-y-4">
-		<!-- Frequency Feeds (system-generated from watch history) -->
-		{#if frequencyFeeds.length > 0}
-			<div class="space-y-2">
-				{#each frequencyFeeds as feed}
-					<a
-						href="/feeds/{feed.id}"
-						class="card flex items-center justify-between p-4 hover:bg-elevated transition-colors group"
-					>
-						<div class="flex items-center gap-3 min-w-0">
-							<div class="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 flex items-center justify-center flex-shrink-0">
-								<svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-								</svg>
-							</div>
-							<span class="font-medium text-text-primary truncate">{feed.name}</span>
+	<div class="space-y-2">
+		{#each feeds as feed, index (feed.id)}
+			<div
+				draggable="true"
+				ondragstart={() => handleDragStart(index)}
+				ondragover={(e) => handleDragOver(e, index)}
+				ondragleave={handleDragLeave}
+				ondrop={() => handleDrop(index)}
+				ondragend={handleDragEnd}
+				class="group"
+				class:opacity-50={draggedIndex === index}
+			>
+				{#if dragOverIndex === index && draggedIndex !== null && draggedIndex !== index}
+					<div class="h-1 bg-emerald-500 rounded-full mb-2 transition-all"></div>
+				{/if}
+				<a
+					href="/feeds/{feed.id}"
+					class="card flex items-center justify-between p-4 hover:bg-elevated transition-colors"
+				>
+					<div class="flex items-center gap-3 min-w-0">
+						<!-- Drag handle -->
+						<div class="w-6 h-6 flex items-center justify-center text-text-muted cursor-grab active:cursor-grabbing flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+								<circle cx="9" cy="6" r="1.5"/>
+								<circle cx="15" cy="6" r="1.5"/>
+								<circle cx="9" cy="12" r="1.5"/>
+								<circle cx="15" cy="12" r="1.5"/>
+								<circle cx="9" cy="18" r="1.5"/>
+								<circle cx="15" cy="18" r="1.5"/>
+							</svg>
 						</div>
-						<svg class="w-5 h-5 text-text-muted group-hover:text-text-secondary transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-						</svg>
-					</a>
-				{/each}
-			</div>
-		{/if}
-
-		<!-- Divider -->
-		{#if frequencyFeeds.length > 0 && userFeeds.length > 0}
-			<div class="flex items-center gap-4 py-4">
-				<div class="flex-1 border-t border-border-subtle"></div>
-				<span class="text-sm text-text-muted">Your Feeds</span>
-				<div class="flex-1 border-t border-border-subtle"></div>
-			</div>
-		{/if}
-
-		<!-- User Feeds -->
-		{#if userFeeds.length > 0}
-			<div class="space-y-2">
-				{#each userFeeds as feed}
-					<a
-						href="/feeds/{feed.id}"
-						class="card flex items-center justify-between p-4 hover:bg-elevated transition-colors group"
-					>
-						<div class="flex items-center gap-3 min-w-0">
-							<div class="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500/20 to-violet-600/20 flex items-center justify-center flex-shrink-0">
-								<svg class="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-								</svg>
-							</div>
-							<span class="font-medium text-text-primary truncate">{feed.name}</span>
+						<!-- Feed icon -->
+						<div class="w-10 h-10 rounded-lg bg-gradient-to-br {feed.is_system ? 'from-amber-500/20 to-amber-600/20' : 'from-violet-500/20 to-violet-600/20'} flex items-center justify-center flex-shrink-0">
+							<svg class="w-5 h-5 {feed.is_system ? 'text-amber-500' : 'text-violet-500'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+							</svg>
 						</div>
-						<svg class="w-5 h-5 text-text-muted group-hover:text-text-secondary transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-						</svg>
-					</a>
-				{/each}
+						<!-- Feed name and badge -->
+						<span class="font-medium text-text-primary truncate">{feed.name}</span>
+						{#if feed.new_video_count > 0}
+							<span class="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded-full flex-shrink-0">
+								{feed.new_video_count}
+							</span>
+						{/if}
+					</div>
+					<svg class="w-5 h-5 text-text-muted group-hover:text-text-secondary transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+					</svg>
+				</a>
 			</div>
-		{/if}
+		{/each}
 
 		<!-- New Feed Button -->
 		<div class="flex justify-center pt-6">
