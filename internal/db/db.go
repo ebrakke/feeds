@@ -429,6 +429,12 @@ func (db *DB) ReorderFeeds(feedIDs []int64) error {
 	return tx.Commit()
 }
 
+// UpdateNewVideoCount sets the new_video_count for a feed
+func (db *DB) UpdateNewVideoCount(feedID int64, count int) error {
+	_, err := db.conn.Exec("UPDATE feeds SET new_video_count = ? WHERE id = ?", count, feedID)
+	return err
+}
+
 // RemoveChannelFromFeed removes a channel from a feed.
 // If the channel has no more feeds, it and its videos are deleted.
 // Returns true if the channel was completely deleted.
