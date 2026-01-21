@@ -13,6 +13,42 @@ const (
 	cacheCleanupInterval = 10 * time.Minute
 )
 
+const (
+	// Buffer thresholds for streaming (bytes needed for ~10 sec of video)
+	bufferThreshold1080p = 8 * 1024 * 1024  // ~8 MB for 1080p
+	bufferThreshold720p  = 4 * 1024 * 1024  // ~4 MB for 720p
+	bufferThreshold480p  = 2 * 1024 * 1024  // ~2 MB for 480p
+	bufferThreshold360p  = 1 * 1024 * 1024  // ~1 MB for 360p
+	bufferThreshold4K    = 20 * 1024 * 1024 // ~20 MB for 4K
+)
+
+// GetBufferThreshold returns the bytes needed to buffer ~10 seconds of video
+func GetBufferThreshold(quality string) int64 {
+	switch quality {
+	case "2160", "4K", "best":
+		return bufferThreshold4K
+	case "1080":
+		return bufferThreshold1080p
+	case "720":
+		return bufferThreshold720p
+	case "480":
+		return bufferThreshold480p
+	case "360":
+		return bufferThreshold360p
+	default:
+		return bufferThreshold720p // Default to 720p threshold
+	}
+}
+
+// GetFileSize returns the current size of a file, or 0 if it doesn't exist
+func GetFileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
 // VideoCache manages cached muxed video files
 type VideoCache struct{}
 
