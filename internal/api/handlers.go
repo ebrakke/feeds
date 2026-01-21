@@ -1319,50 +1319,6 @@ func (s *Server) servePartialFileRange(w http.ResponseWriter, file *os.File, fil
 	io.CopyN(w, file, length)
 }
 
-func (s *Server) proxyProgressiveStream(w http.ResponseWriter, r *http.Request, videoID string) {
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
-
-	// Get progressive stream URL (combined video+audio, typically up to 720p)
-	streamURL, err := s.ytdlp.GetStreamURL(videoURL, "best")
-	if err != nil {
-		log.Printf("Failed to get stream URL for %s: %v", videoID, err)
-		http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
-		return
-	}
-
-	// Create request to YouTube with range header passthrough
-	req, err := http.NewRequestWithContext(r.Context(), "GET", streamURL, nil)
-	if err != nil {
-		http.Error(w, "Failed to create request", http.StatusInternalServerError)
-		return
-	}
-
-	// Forward range header for seeking support
-	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
-	}
-
-	client := &http.Client{Timeout: 0} // No timeout for streaming
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Failed to fetch stream for %s: %v", videoID, err)
-		http.Error(w, "Failed to fetch stream", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Copy response headers
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-
-	// Stream the response
-	io.Copy(w, resp.Body)
-}
-
 func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
 	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
