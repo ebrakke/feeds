@@ -266,8 +266,22 @@ def play_video(video_id: str):
         li = xbmcgui.ListItem(path=stream_url)
         xbmcplugin.setResolvedUrl(HANDLE, True, li)
 
-        # Start custom player for monitoring
+        # Start custom player for monitoring - must keep reference alive
         player = FeedsPlayer(api, video_id, segments, settings["sponsorblock_enabled"])
+
+        # Wait for playback to start, then monitor until done
+        # This keeps the player object alive so callbacks work
+        monitor = xbmc.Monitor()
+        timeout = 10  # seconds to wait for playback to start
+        while not player.isPlaying() and timeout > 0:
+            if monitor.waitForAbort(1):
+                return
+            timeout -= 1
+
+        # Keep alive while playing
+        while player.isPlaying() and not monitor.abortRequested():
+            if monitor.waitForAbort(1):
+                break
 
     except FeedsAPIError as e:
         xbmcgui.Dialog().ok("Feeds", f"Error: {e}")
