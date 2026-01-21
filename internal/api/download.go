@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -21,12 +22,94 @@ type DownloadManager struct {
 
 // Download represents an in-progress download
 type Download struct {
-	VideoID   string
-	Quality   string
-	Status    string // "downloading", "muxing", "complete", "error"
-	Progress  float64
-	Error     string
-	StartedAt time.Time
+	VideoID      string
+	Quality      string
+	Status       string // "downloading", "muxing", "complete", "error"
+	Progress     float64
+	Error        string
+	StartedAt    time.Time
+	FilePath     string        // Path to the file being downloaded
+	FileSize     int64         // Current file size (updated during download)
+	TotalSize    int64         // Expected total size (if known)
+	IsStreaming  bool          // True if triggered by streaming, false if explicit download
+	bufferReady  chan struct{} // Closed when buffer threshold is reached
+	mu           sync.Mutex    // Protects FileSize updates
+}
+
+// WaitForBuffer blocks until the download has buffered enough data or context is cancelled.
+// Returns nil when buffer is ready, or an error if cancelled/failed.
+func (d *Download) WaitForBuffer(ctx context.Context, threshold int64) error {
+	// Check if already have enough data
+	d.mu.Lock()
+	if d.FileSize >= threshold {
+		d.mu.Unlock()
+		return nil
+	}
+	if d.Status == "error" {
+		err := d.Error
+		d.mu.Unlock()
+		return fmt.Errorf("download failed: %s", err)
+	}
+	if d.Status == "complete" {
+		d.mu.Unlock()
+		return nil
+	}
+	d.mu.Unlock()
+
+	// Poll for buffer ready with timeout
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-d.bufferReady:
+			return nil
+		case <-ticker.C:
+			d.mu.Lock()
+			if d.Status == "error" {
+				err := d.Error
+				d.mu.Unlock()
+				return fmt.Errorf("download failed: %s", err)
+			}
+			if d.Status == "complete" || d.FileSize >= threshold {
+				d.mu.Unlock()
+				return nil
+			}
+			d.mu.Unlock()
+		}
+	}
+}
+
+// UpdateFileSize updates the current file size and signals buffer ready if threshold met
+func (d *Download) UpdateFileSize(size int64, threshold int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.FileSize = size
+
+	// Signal buffer ready if we've hit the threshold and haven't already
+	if size >= threshold && d.bufferReady != nil {
+		select {
+		case <-d.bufferReady:
+			// Already closed
+		default:
+			close(d.bufferReady)
+		}
+	}
+}
+
+// GetFilePath returns the path to the download file
+func (d *Download) GetFilePath() string {
+	return d.FilePath
+}
+
+// GetFileSize returns the current downloaded size
+func (d *Download) GetFileSize() int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.FileSize
 }
 
 // DownloadProgress is sent to SSE clients
@@ -76,10 +159,12 @@ func (dm *DownloadManager) StartDownload(videoID, quality string) (*Download, er
 
 	// Create new download
 	d := &Download{
-		VideoID:   videoID,
-		Quality:   quality,
-		Status:    "downloading",
-		StartedAt: time.Now(),
+		VideoID:     videoID,
+		Quality:     quality,
+		Status:      "downloading",
+		StartedAt:   time.Now(),
+		FilePath:    dm.cache.CachePath(cacheKey),
+		bufferReady: make(chan struct{}),
 	}
 	dm.active[key] = d
 	dm.mu.Unlock()
@@ -156,6 +241,10 @@ func (dm *DownloadManager) broadcast(videoID string, progress DownloadProgress) 
 }
 
 func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
+	dm.mu.RLock()
+	d := dm.active[key]
+	dm.mu.RUnlock()
+
 	defer func() {
 		dm.mu.Lock()
 		delete(dm.active, key)
@@ -166,13 +255,26 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	outputPath := dm.cache.CachePath(cacheKey)
 	tempOutput := outputPath + ".tmp"
 
+	// Store the temp path for serving partial file
+	if d != nil {
+		d.FilePath = tempOutput
+	}
+
 	log.Printf("Starting yt-dlp download for %s quality %s", videoID, quality)
 
+	// Get buffer threshold for this quality
+	threshold := GetBufferThreshold(quality)
+
 	// Use yt-dlp's native downloader with progress callback
-	// This is MUCH faster than HTTP download (~20 MB/s vs ~100 KB/s)
-	// Progress is mapped in ytdlp: video=0-80%, audio=80-95%, complete=100%
 	var lastBroadcast time.Time
 	size, err := dm.ytdlp.DownloadVideoWithProgress(videoURL, quality, tempOutput, func(downloaded, total int64, percent float64) {
+		// Update file size for buffer tracking
+		if d != nil {
+			currentSize := GetFileSize(tempOutput)
+			d.UpdateFileSize(currentSize, threshold)
+			d.TotalSize = total
+		}
+
 		// Throttle broadcasts to every 250ms for smoother progress
 		if time.Since(lastBroadcast) < 250*time.Millisecond {
 			return
@@ -202,6 +304,12 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 		return
 	}
 
+	// Update file path to final location
+	if d != nil {
+		d.FilePath = outputPath
+		d.FileSize = size
+	}
+
 	log.Printf("Download complete: %s quality %s, %d bytes saved to %s", videoID, quality, size, outputPath)
 
 	dm.broadcast(videoID, DownloadProgress{
@@ -209,6 +317,49 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 		Percent: 100,
 		Status:  "complete",
 	})
+}
+
+// GetOrStartDownload returns an existing download or starts a new one.
+// Unlike StartDownload, this always returns the Download pointer for tracking.
+func (dm *DownloadManager) GetOrStartDownload(videoID, quality string) *Download {
+	key := downloadKey(videoID, quality)
+	cacheKey := CacheKey(videoID, quality)
+
+	// Check if already cached (complete)
+	if cachedPath, ok := dm.cache.Get(cacheKey); ok {
+		return &Download{
+			VideoID:  videoID,
+			Quality:  quality,
+			Status:   "complete",
+			FilePath: cachedPath,
+			FileSize: GetFileSize(cachedPath),
+		}
+	}
+
+	dm.mu.Lock()
+	// Check if already downloading
+	if d, exists := dm.active[key]; exists {
+		dm.mu.Unlock()
+		return d
+	}
+
+	// Create new download (streaming-triggered)
+	d := &Download{
+		VideoID:     videoID,
+		Quality:     quality,
+		Status:      "downloading",
+		StartedAt:   time.Now(),
+		FilePath:    dm.cache.CachePath(cacheKey) + ".tmp",
+		IsStreaming: true,
+		bufferReady: make(chan struct{}),
+	}
+	dm.active[key] = d
+	dm.mu.Unlock()
+
+	// Start download in background
+	go dm.runDownload(videoID, quality, key, cacheKey)
+
+	return d
 }
 
 func (dm *DownloadManager) setError(key, videoID, quality, errMsg string) {

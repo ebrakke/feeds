@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -8,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -1182,72 +1184,139 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, downloadURL, http.StatusFound)
 }
 
+// selectBestQuality returns the best quality to use for "auto" mode.
+// Defaults to 1080p as a good balance of quality and download speed.
+func selectBestQuality() string {
+	return "1080"
+}
+
 func (s *Server) handleStreamProxy(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 	quality := r.URL.Query().Get("quality")
-	if quality == "" {
-		quality = "auto"
+	if quality == "" || quality == "auto" {
+		quality = selectBestQuality()
 	}
 
-	// For non-auto quality, check cache first
-	if quality != "auto" {
-		cacheKey := CacheKey(videoID, quality)
-		if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
-			log.Printf("Serving cached video: %s", cacheKey)
-			http.ServeFile(w, r, cachedPath)
-			return
-		}
-		// No cache for this quality - return 404, client should use auto
-		http.Error(w, "Quality not cached", http.StatusNotFound)
+	// Check if already fully cached
+	cacheKey := CacheKey(videoID, quality)
+	if cachedPath, ok := s.videoCache.Get(cacheKey); ok {
+		log.Printf("Serving fully cached video: %s quality %s", videoID, quality)
+		http.ServeFile(w, r, cachedPath)
 		return
 	}
 
-	// Auto quality: proxy progressive stream from YouTube
-	s.proxyProgressiveStream(w, r, videoID)
+	// Start or get existing download
+	download := s.downloadManager.GetOrStartDownload(videoID, quality)
+
+	// If already complete, serve the file
+	if download.Status == "complete" {
+		log.Printf("Serving completed download: %s quality %s", videoID, quality)
+		http.ServeFile(w, r, download.GetFilePath())
+		return
+	}
+
+	// Wait for buffer threshold
+	threshold := GetBufferThreshold(quality)
+	log.Printf("Waiting for buffer (%d bytes) for %s quality %s", threshold, videoID, quality)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	if err := download.WaitForBuffer(ctx, threshold); err != nil {
+		log.Printf("Buffer wait failed for %s: %v", videoID, err)
+		http.Error(w, "Buffering failed: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	log.Printf("Buffer ready for %s quality %s, serving partial file", videoID, quality)
+
+	// Serve the partial file
+	s.servePartialFile(w, r, download)
 }
 
-func (s *Server) proxyProgressiveStream(w http.ResponseWriter, r *http.Request, videoID string) {
-	videoURL := "https://www.youtube.com/watch?v=" + videoID
+// servePartialFile serves a file that may still be downloading.
+// It handles range requests and serves available data.
+func (s *Server) servePartialFile(w http.ResponseWriter, r *http.Request, d *Download) {
+	filePath := d.GetFilePath()
 
-	// Get progressive stream URL (combined video+audio, typically up to 720p)
-	streamURL, err := s.ytdlp.GetStreamURL(videoURL, "best")
+	file, err := os.Open(filePath)
 	if err != nil {
-		log.Printf("Failed to get stream URL for %s: %v", videoID, err)
-		http.Error(w, "Failed to get stream URL", http.StatusInternalServerError)
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
 	}
+	defer file.Close()
 
-	// Create request to YouTube with range header passthrough
-	req, err := http.NewRequestWithContext(r.Context(), "GET", streamURL, nil)
-	if err != nil {
-		http.Error(w, "Failed to create request", http.StatusInternalServerError)
-		return
-	}
-
-	// Forward range header for seeking support
-	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
-	}
-
-	client := &http.Client{Timeout: 0} // No timeout for streaming
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Failed to fetch stream for %s: %v", videoID, err)
-		http.Error(w, "Failed to fetch stream", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Copy response headers
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
+	// Get current file size
+	currentSize := d.GetFileSize()
+	if currentSize == 0 {
+		info, err := file.Stat()
+		if err != nil {
+			http.Error(w, "Failed to stat file", http.StatusInternalServerError)
+			return
 		}
+		currentSize = info.Size()
 	}
-	w.WriteHeader(resp.StatusCode)
 
-	// Stream the response
-	io.Copy(w, resp.Body)
+	// Set content type
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Handle range request
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		s.servePartialFileRange(w, file, currentSize, rangeHeader)
+		return
+	}
+
+	// No range request - serve from beginning
+	// Use current size as content length (client will handle incomplete)
+	w.Header().Set("Content-Length", strconv.FormatInt(currentSize, 10))
+	w.WriteHeader(http.StatusOK)
+
+	// Copy available data
+	io.CopyN(w, file, currentSize)
+}
+
+// servePartialFileRange handles range requests for partial files
+func (s *Server) servePartialFileRange(w http.ResponseWriter, file *os.File, fileSize int64, rangeHeader string) {
+	// Parse range header: "bytes=start-end" or "bytes=start-"
+	var start, end int64
+	_, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
+	if err != nil {
+		// Try without end
+		_, err = fmt.Sscanf(rangeHeader, "bytes=%d-", &start)
+		if err != nil {
+			http.Error(w, "Invalid range", http.StatusBadRequest)
+			return
+		}
+		end = fileSize - 1
+	}
+
+	// Validate range
+	if start < 0 || start >= fileSize {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		http.Error(w, "Range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+
+	// Clamp end to available data
+	if end >= fileSize {
+		end = fileSize - 1
+	}
+
+	// Seek to start position
+	if _, err := file.Seek(start, 0); err != nil {
+		http.Error(w, "Seek failed", http.StatusInternalServerError)
+		return
+	}
+
+	length := end - start + 1
+
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+	w.WriteHeader(http.StatusPartialContent)
+
+	io.CopyN(w, file, length)
 }
 
 func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
@@ -1739,7 +1808,7 @@ func (s *Server) handleGetQualities(w http.ResponseWriter, r *http.Request) {
 	videoID := r.PathValue("id")
 
 	// Available qualities (hardcoded for now, could query yt-dlp)
-	available := []string{"360", "480", "720", "1080"}
+	available := []string{"360", "480", "720", "1080", "1440", "2160"}
 
 	// Check which are cached
 	var cached []string
@@ -1750,11 +1819,11 @@ func (s *Server) handleGetQualities(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check which is downloading
+	// Check which is downloading (only explicit downloads, not streaming)
 	var downloading *string
 	status := s.downloadManager.GetStatus(videoID)
 	for quality, d := range status {
-		if d.Status == "downloading" || d.Status == "muxing" {
+		if (d.Status == "downloading" || d.Status == "muxing") && !d.IsStreaming {
 			downloading = &quality
 			break
 		}
