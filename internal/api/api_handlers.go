@@ -264,6 +264,35 @@ func (s *Server) handleAPIDeleteFeed(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleAPIReorderFeeds(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FeedIDs []int64 `json:"feed_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.FeedIDs) == 0 {
+		jsonError(w, "feed_ids is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.db.ReorderFeeds(req.FeedIDs); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return updated feeds list
+	feeds, err := s.db.GetFeeds()
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, feeds)
+}
+
 func (s *Server) handleAPIRefreshFeed(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
