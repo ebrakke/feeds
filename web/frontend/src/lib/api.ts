@@ -63,8 +63,16 @@ export async function deleteFeed(id: number): Promise<void> {
 	return fetchJSON(`/feeds/${id}`, { method: 'DELETE' });
 }
 
+export async function reorderFeeds(feedIds: number[]): Promise<Feed[]> {
+	return fetchJSON('/feeds/reorder', {
+		method: 'PUT',
+		body: JSON.stringify({ feed_ids: feedIds })
+	});
+}
+
 export async function refreshFeed(id: number): Promise<{
 	videosFound: number;
+	newVideos: number;
 	channels: number;
 	errors: string[];
 }> {
