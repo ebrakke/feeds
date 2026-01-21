@@ -214,6 +214,10 @@ func (dm *DownloadManager) broadcast(videoID string, progress DownloadProgress) 
 }
 
 func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
+	dm.mu.RLock()
+	d := dm.active[key]
+	dm.mu.RUnlock()
+
 	defer func() {
 		dm.mu.Lock()
 		delete(dm.active, key)
@@ -224,13 +228,26 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 	outputPath := dm.cache.CachePath(cacheKey)
 	tempOutput := outputPath + ".tmp"
 
+	// Store the temp path for serving partial file
+	if d != nil {
+		d.FilePath = tempOutput
+	}
+
 	log.Printf("Starting yt-dlp download for %s quality %s", videoID, quality)
 
+	// Get buffer threshold for this quality
+	threshold := GetBufferThreshold(quality)
+
 	// Use yt-dlp's native downloader with progress callback
-	// This is MUCH faster than HTTP download (~20 MB/s vs ~100 KB/s)
-	// Progress is mapped in ytdlp: video=0-80%, audio=80-95%, complete=100%
 	var lastBroadcast time.Time
 	size, err := dm.ytdlp.DownloadVideoWithProgress(videoURL, quality, tempOutput, func(downloaded, total int64, percent float64) {
+		// Update file size for buffer tracking
+		if d != nil {
+			currentSize := GetFileSize(tempOutput)
+			d.UpdateFileSize(currentSize, threshold)
+			d.TotalSize = total
+		}
+
 		// Throttle broadcasts to every 250ms for smoother progress
 		if time.Since(lastBroadcast) < 250*time.Millisecond {
 			return
@@ -258,6 +275,12 @@ func (dm *DownloadManager) runDownload(videoID, quality, key, cacheKey string) {
 		os.Remove(tempOutput)
 		dm.setError(key, videoID, quality, fmt.Sprintf("Failed to save file: %v", err))
 		return
+	}
+
+	// Update file path to final location
+	if d != nil {
+		d.FilePath = outputPath
+		d.FileSize = size
 	}
 
 	log.Printf("Download complete: %s quality %s, %d bytes saved to %s", videoID, quality, size, outputPath)
