@@ -126,11 +126,12 @@ func (y *YTDLP) GetChannelVideos(channelURL string, start, end int) ([]VideoInfo
 	}
 
 	args := []string{
-		"--flat-playlist",
 		"--playlist-start", fmt.Sprintf("%d", start),
 		"--playlist-end", fmt.Sprintf("%d", end),
 		"--dump-json",
+		"--no-download",
 		"--no-warnings",
+		"--ignore-errors",
 	}
 	args = y.appendCookiesArgs(args)
 	args = append(args, videosURL)
@@ -142,8 +143,12 @@ func (y *YTDLP) GetChannelVideos(channelURL string, start, end int) ([]VideoInfo
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
+	// Run command - with --ignore-errors, yt-dlp may return non-zero exit even on partial success
+	_ = cmd.Run()
+
+	// Log stderr for debugging but don't fail - we use --ignore-errors so some videos may fail
+	if stderr.Len() > 0 {
+		log.Printf("yt-dlp stderr (some videos may have been skipped): %s", stderr.String())
 	}
 
 	log.Printf("yt-dlp stdout length: %d bytes", stdout.Len())
