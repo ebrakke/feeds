@@ -65,7 +65,7 @@
 	<div bind:this={gridElement} class="video-grid">
 		{#each videos as video, i (video.id)}
 			<div
-				class="animate-fade-up"
+				class="animate-fade-up min-w-0"
 				style="opacity: 0; animation-delay: {Math.min(i * 0.03, 0.3)}s;"
 			>
 				<VideoCard

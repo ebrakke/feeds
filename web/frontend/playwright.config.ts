@@ -31,10 +31,10 @@ export default defineConfig({
 			use: { ...devices['iPhone 14 Pro'] }
 		}
 	],
-	webServer: process.env.CI
+	webServer: process.env.CI || process.env.NO_WEBSERVER
 		? undefined
 		: {
-				command: 'bun run dev',
+				command: 'npm run dev',
 				url: 'http://localhost:5173',
 				reuseExistingServer: true
 			}
