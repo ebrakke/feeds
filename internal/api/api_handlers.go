@@ -1163,6 +1163,43 @@ func (s *Server) handleAPIImportWatchHistory(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// Search endpoint
+
+func (s *Server) handleAPISearch(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(query) < 2 {
+		jsonError(w, "Query must be at least 2 characters", http.StatusBadRequest)
+		return
+	}
+
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 50 {
+			limit = parsed
+		}
+	}
+
+	// Search videos
+	videos, err := s.db.SearchVideos(query, limit)
+	if err != nil {
+		jsonError(w, "Failed to search videos: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Search channels
+	channels, err := s.db.SearchChannels(query, limit)
+	if err != nil {
+		jsonError(w, "Failed to search channels: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]any{
+		"videos":   videos,
+		"channels": channels,
+		"query":    query,
+	})
+}
+
 // parseWatchHistory extracts unique channels from YouTube watch history JSON
 func parseWatchHistory(data []byte) ([]models.WatchHistoryChannel, int, error) {
 	var entries []models.WatchHistoryEntry

@@ -148,6 +148,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/config", s.handleAPIConfig)
 	mux.HandleFunc("POST /api/config/ytdlp-cookies", s.handleAPISetYTDLPCookies)
+
+	mux.HandleFunc("GET /api/search", s.handleAPISearch)
 }
 
 // Page handlers

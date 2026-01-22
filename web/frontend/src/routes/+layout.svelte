@@ -3,12 +3,14 @@
 	import Toast from '$lib/components/Toast.svelte';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
 	import HamburgerMenu from '$lib/components/HamburgerMenu.svelte';
+	import SearchBar from '$lib/components/SearchBar.svelte';
 	import { navigationOrigin } from '$lib/stores/navigation';
 	import { page } from '$app/stores';
 
 	let { children } = $props();
 
 	let menuOpen = $state(false);
+	let mobileSearchOpen = $state(false);
 
 	// Determine if we should show origin navigation
 	let showOrigin = $derived(
@@ -60,8 +62,22 @@
 					</div>
 				{/if}
 
-				<!-- Right side buttons -->
+				<!-- Search and right side buttons -->
 				<div class="flex items-center gap-1 -mr-1">
+					<!-- Desktop search -->
+					<div class="hidden sm:block">
+						<SearchBar />
+					</div>
+					<!-- Mobile search toggle -->
+					<button
+						onclick={() => mobileSearchOpen = !mobileSearchOpen}
+						class="sm:hidden btn btn-ghost btn-sm"
+						aria-label="Search"
+					>
+						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+						</svg>
+					</button>
 					<a href="/settings" class="btn btn-ghost btn-sm" aria-label="Settings">
 						<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -70,6 +86,12 @@
 					</a>
 				</div>
 			</nav>
+			<!-- Mobile search bar (shown when toggle is clicked) -->
+			{#if mobileSearchOpen}
+				<div class="sm:hidden pb-3 animate-slide-down">
+					<SearchBar />
+				</div>
+			{/if}
 		</div>
 	</header>
 

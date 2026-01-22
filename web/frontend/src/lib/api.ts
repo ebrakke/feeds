@@ -339,6 +339,15 @@ export async function getQualities(videoId: string): Promise<{
 	return fetchJSON(`/videos/${videoId}/qualities`);
 }
 
+// Search
+export async function search(query: string, limit = 10): Promise<{
+	videos: Video[];
+	channels: Channel[];
+	query: string;
+}> {
+	return fetchJSON(`/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+}
+
 export function subscribeToDownloadProgress(
 	videoId: string,
 	onProgress: (data: { quality: string; percent: number; status: string; error?: string }) => void

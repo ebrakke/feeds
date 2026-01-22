@@ -1116,3 +1116,61 @@ func (db *DB) GetVideoShortsStatus(videoIDs []string) (map[string]bool, error) {
 	}
 	return result, rows.Err()
 }
+
+// Search operations
+
+// SearchVideos searches videos by title, returning up to limit results
+func (db *DB) SearchVideos(query string, limit int) ([]models.Video, error) {
+	searchPattern := "%" + query + "%"
+	rows, err := db.conn.Query(`
+		SELECT id, channel_id, title, channel_name, thumbnail, duration, is_short, published, url
+		FROM videos
+		WHERE title LIKE ?
+		ORDER BY published DESC
+		LIMIT ?
+	`, searchPattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	for rows.Next() {
+		var v models.Video
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
+			return nil, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
+		}
+		videos = append(videos, v)
+	}
+	return videos, rows.Err()
+}
+
+// SearchChannels searches channels by name, returning up to limit results
+func (db *DB) SearchChannels(query string, limit int) ([]models.Channel, error) {
+	searchPattern := "%" + query + "%"
+	rows, err := db.conn.Query(`
+		SELECT id, url, name
+		FROM channels
+		WHERE name LIKE ?
+		ORDER BY name
+		LIMIT ?
+	`, searchPattern, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var channels []models.Channel
+	for rows.Next() {
+		var c models.Channel
+		if err := rows.Scan(&c.ID, &c.URL, &c.Name); err != nil {
+			return nil, err
+		}
+		channels = append(channels, c)
+	}
+	return channels, rows.Err()
+}
