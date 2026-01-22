@@ -24,6 +24,20 @@ The dev environment runs:
 
 Access the app at http://localhost:5173
 
+### Important: Server Architecture
+
+**ALWAYS use `make dev` and access the app through http://localhost:5173**
+
+The Vite dev server (port 5173) proxies ALL `/api/*` requests to the Go backend (port 8080). Do NOT:
+- Try to access the Go server directly on port 8080 for frontend work
+- Try to call API endpoints directly (they return HTML from Vite, not JSON)
+- Start the servers separately - `make dev` handles both
+
+For Playwright tests:
+- The dev server must be running (`make dev`)
+- Tests use `NO_WEBSERVER=1` env var when the server is already running
+- Base URL is always http://localhost:5173
+
 ## Architecture
 
 - **Backend**: Go HTTP server with SQLite database

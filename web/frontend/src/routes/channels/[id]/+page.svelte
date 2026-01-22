@@ -4,6 +4,7 @@
 	import { getChannel, refreshChannel, fetchMoreChannelVideos, addChannelToFeed, removeChannelFromFeed, type FetchMoreProgress } from '$lib/api';
 	import type { Channel, Video, WatchProgress, Feed } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
+	import { bottomSheet } from '$lib/stores/bottomSheet';
 
 	const VIDEOS_PER_PAGE = 20;
 
@@ -116,6 +117,25 @@
 		} finally {
 			fetchingMore = false;
 			fetchProgress = null;
+		}
+	}
+
+	function handleOpenAddToFeed() {
+		// Check if mobile (no hover support = touch device)
+		const isMobile = window.matchMedia('(hover: none)').matches;
+
+		if (isMobile && channel) {
+			// Mobile: Show bottom sheet
+			bottomSheet.open({
+				title: 'Add to feed',
+				channelId: channel.id,
+				channelName: channel.name,
+				feeds: allFeeds,
+				memberFeedIds: feeds.map(f => f.id)
+			});
+		} else {
+			// Desktop: Show dropdown
+			showAddDropdown = !showAddDropdown;
 		}
 	}
 
@@ -324,7 +344,7 @@
 			<!-- Add to Feed Button -->
 			<div class="relative add-feed-dropdown">
 				<button
-					onclick={() => showAddDropdown = !showAddDropdown}
+					onclick={handleOpenAddToFeed}
 					disabled={availableFeeds.length === 0}
 					class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 				>
