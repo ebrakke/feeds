@@ -157,4 +157,45 @@ test.describe('Smoke Tests', () => {
 			}
 		}
 	});
+
+	test('channel page buttons visible on mobile', async ({ page }) => {
+		// Get a channel ID from the API
+		const feedsResponse = await page.request.get('/api/feeds');
+		const feeds = await feedsResponse.json();
+
+		if (feeds.length > 0) {
+			const feedResponse = await page.request.get(`/api/feeds/${feeds[0].id}`);
+			const feedData = await feedResponse.json();
+
+			if (feedData.channels && feedData.channels.length > 0) {
+				const channelId = feedData.channels[0].id;
+
+				await page.goto(`/channels/${channelId}`);
+
+				// Wait for channel name to be visible (confirms page is loaded)
+				await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+				// Should show both Fetch More and Refresh buttons
+				await expect(page.getByRole('button', { name: /Fetch More/i })).toBeVisible();
+				await expect(page.getByRole('button', { name: /Refresh/i })).toBeVisible();
+
+				// Check buttons are within viewport bounds (not pushed off screen)
+				const fetchMoreButton = page.getByRole('button', { name: /Fetch More/i });
+				const refreshButton = page.getByRole('button', { name: /Refresh/i });
+
+				const fetchMoreBox = await fetchMoreButton.boundingBox();
+				const refreshBox = await refreshButton.boundingBox();
+
+				expect(fetchMoreBox).toBeTruthy();
+				expect(refreshBox).toBeTruthy();
+
+				// Check buttons are within reasonable viewport bounds (not pushed off right edge)
+				const viewport = page.viewportSize();
+				if (viewport && fetchMoreBox && refreshBox) {
+					expect(fetchMoreBox.x + fetchMoreBox.width).toBeLessThanOrEqual(viewport.width + 10);
+					expect(refreshBox.x + refreshBox.width).toBeLessThanOrEqual(viewport.width + 10);
+				}
+			}
+		}
+	});
 });

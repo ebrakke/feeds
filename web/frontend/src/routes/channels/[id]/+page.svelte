@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getChannel, refreshChannel, addChannelToFeed, removeChannelFromFeed } from '$lib/api';
+	import { getChannel, refreshChannel, fetchMoreChannelVideos, addChannelToFeed, removeChannelFromFeed } from '$lib/api';
 	import type { Channel, Video, WatchProgress, Feed } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
 
@@ -16,6 +16,8 @@
 	let loadingMore = $state(false);
 	let hasMore = $state(false);
 	let refreshing = $state(false);
+	let fetchingMore = $state(false);
+	let canFetchMore = $state(true);
 	let error = $state<string | null>(null);
 	let showAddDropdown = $state(false);
 	let addingToFeed = $state(false);
@@ -93,6 +95,21 @@
 			error = e instanceof Error ? e.message : 'Failed to refresh';
 		} finally {
 			refreshing = false;
+		}
+	}
+
+	async function handleFetchMore() {
+		fetchingMore = true;
+		error = null;
+		try {
+			const result = await fetchMoreChannelVideos(id);
+			canFetchMore = result.hasMore;
+			// Reload the channel to get the new videos
+			await loadChannel();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to fetch more videos';
+		} finally {
+			fetchingMore = false;
 		}
 	}
 
@@ -184,9 +201,9 @@
 {:else if channel}
 	<!-- Channel Header -->
 	<header class="mb-6 animate-fade-up" style="opacity: 0;">
-		<div class="flex items-start justify-between gap-4">
-			<div class="flex items-center gap-4">
-				<div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-crimson-500/20 flex items-center justify-center border border-white/5">
+		<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+			<div class="flex items-center gap-4 min-w-0">
+				<div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-crimson-500/20 flex items-center justify-center border border-white/5 shrink-0">
 					<svg class="w-7 h-7 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
 						<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
 						<circle cx="9" cy="7" r="4"/>
@@ -194,8 +211,8 @@
 						<path d="M16 3.13a4 4 0 0 1 0 7.75"/>
 					</svg>
 				</div>
-				<div>
-					<h1 class="text-2xl font-display font-bold mb-1">{channel.name}</h1>
+				<div class="min-w-0">
+					<h1 class="text-2xl font-display font-bold mb-1 truncate">{channel.name}</h1>
 					<div class="flex items-center gap-3 text-sm">
 						<span class="text-text-muted">{videos.length}{hasMore ? '+' : ''} videos</span>
 						<span class="text-text-dim">·</span>
@@ -216,26 +233,49 @@
 				</div>
 			</div>
 
-			<button
-				onclick={handleRefresh}
-				disabled={refreshing}
-				class="btn btn-primary shrink-0"
-			>
-				{#if refreshing}
-					<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-					</svg>
-					Refreshing...
-				{:else}
-					<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<polyline points="23 4 23 10 17 10"/>
-						<polyline points="1 20 1 14 7 14"/>
-						<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-					</svg>
-					Refresh
-				{/if}
-			</button>
+			<div class="flex gap-2 shrink-0">
+				<button
+					onclick={handleFetchMore}
+					disabled={fetchingMore || !canFetchMore}
+					class="btn btn-secondary flex-1 sm:flex-none"
+					title="Fetch older videos from YouTube"
+				>
+					{#if fetchingMore}
+						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+						</svg>
+						<span class="sm:inline">Fetching...</span>
+					{:else}
+						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+							<polyline points="7 10 12 15 17 10"/>
+							<line x1="12" y1="15" x2="12" y2="3"/>
+						</svg>
+						<span class="sm:inline">Fetch More</span>
+					{/if}
+				</button>
+				<button
+					onclick={handleRefresh}
+					disabled={refreshing}
+					class="btn btn-primary flex-1 sm:flex-none"
+				>
+					{#if refreshing}
+						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+						</svg>
+						<span class="sm:inline">Refreshing...</span>
+					{:else}
+						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<polyline points="23 4 23 10 17 10"/>
+							<polyline points="1 20 1 14 7 14"/>
+							<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+						</svg>
+						<span class="sm:inline">Refresh</span>
+					{/if}
+				</button>
+			</div>
 		</div>
 
 		<!-- Feed Chips -->

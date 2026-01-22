@@ -51,7 +51,7 @@ type VideoInfo struct {
 	ChannelURL  string      `json:"channel_url"`
 	Thumbnail   string      `json:"thumbnail"`
 	Thumbnails  []Thumbnail `json:"thumbnails"`
-	Duration    int         `json:"duration"`
+	Duration    float64     `json:"duration"`
 	UploadDate  string      `json:"upload_date"`
 	WebpageURL  string      `json:"webpage_url"`
 	URL         string      `json:"url"`
@@ -111,6 +111,55 @@ func (y *YTDLP) GetLatestVideos(channelURL string, limit int) ([]VideoInfo, erro
 		videos = append(videos, v)
 	}
 
+	return videos, nil
+}
+
+// GetChannelVideos fetches videos from a channel with pagination support.
+// start is 1-indexed (first video is 1), end is inclusive.
+// This uses yt-dlp's playlist range feature to fetch older videos.
+func (y *YTDLP) GetChannelVideos(channelURL string, start, end int) ([]VideoInfo, error) {
+	// Ensure we're pointing to the /videos tab
+	// Handle both @handle and /channel/ID formats
+	videosURL := strings.TrimSuffix(channelURL, "/")
+	if !strings.HasSuffix(videosURL, "/videos") {
+		videosURL += "/videos"
+	}
+
+	args := []string{
+		"--flat-playlist",
+		"--playlist-start", fmt.Sprintf("%d", start),
+		"--playlist-end", fmt.Sprintf("%d", end),
+		"--dump-json",
+		"--no-warnings",
+	}
+	args = y.appendCookiesArgs(args)
+	args = append(args, videosURL)
+
+	log.Printf("yt-dlp GetChannelVideos: URL=%s, start=%d, end=%d", videosURL, start, end)
+	cmd := exec.Command(y.BinPath, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
+	}
+
+	log.Printf("yt-dlp stdout length: %d bytes", stdout.Len())
+
+	var videos []VideoInfo
+	decoder := json.NewDecoder(&stdout)
+	for decoder.More() {
+		var v VideoInfo
+		if err := decoder.Decode(&v); err != nil {
+			log.Printf("yt-dlp decode error: %v", err)
+			continue
+		}
+		videos = append(videos, v)
+	}
+
+	log.Printf("yt-dlp parsed %d videos", len(videos))
 	return videos, nil
 }
 
@@ -391,7 +440,7 @@ func (y *YTDLP) GetVideoDurations(videoIDs []string) (map[string]int, error) {
 			continue
 		}
 		if v.ID != "" && v.Duration > 0 {
-			durations[v.ID] = v.Duration
+			durations[v.ID] = int(v.Duration)
 		}
 	}
 
@@ -590,7 +639,7 @@ func (v *VideoInfo) ToModel(channelID int64, channelName string) *models.Video {
 		Title:       v.Title,
 		ChannelName: channelName,
 		Thumbnail:   v.GetBestThumbnail(),
-		Duration:    v.Duration,
+		Duration:    int(v.Duration),
 		Published:   published,
 		URL:         videoURL,
 	}

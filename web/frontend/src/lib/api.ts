@@ -136,6 +136,14 @@ export async function refreshChannel(id: number): Promise<{
 	return fetchJSON(`/channels/${id}/refresh`, { method: 'POST' });
 }
 
+export async function fetchMoreChannelVideos(id: number): Promise<{
+	videosFound: number;
+	channel: string;
+	hasMore: boolean;
+}> {
+	return fetchJSON(`/channels/${id}/fetch-more`, { method: 'POST' });
+}
+
 // Videos
 export async function getRecentVideos(limit = 100, offset = 0): Promise<{
 	videos: Video[];

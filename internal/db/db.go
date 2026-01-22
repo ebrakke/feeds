@@ -589,6 +589,13 @@ func (db *DB) GetVideosByChannel(channelID int64, limit, offset int) ([]models.V
 	return videos, rows.Err()
 }
 
+// GetVideoCountByChannel returns the total number of videos for a channel
+func (db *DB) GetVideoCountByChannel(channelID int64) (int, error) {
+	var count int
+	err := db.conn.QueryRow(`SELECT COUNT(*) FROM videos WHERE channel_id = ?`, channelID).Scan(&count)
+	return count, err
+}
+
 // GetVideosWithoutDuration returns video IDs that have duration = 0
 func (db *DB) GetVideosWithoutDuration(feedID int64, limit int) ([]string, error) {
 	rows, err := db.conn.Query(`

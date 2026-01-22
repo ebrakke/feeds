@@ -675,6 +675,72 @@ func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// handleAPIFetchMoreVideos uses yt-dlp to fetch older videos from a channel's history
+func (s *Server) handleAPIFetchMoreVideos(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		jsonError(w, "Invalid channel ID", http.StatusBadRequest)
+		return
+	}
+
+	channel, err := s.db.GetChannel(id)
+	if err != nil {
+		jsonError(w, "Channel not found", http.StatusNotFound)
+		return
+	}
+
+	// Get the current video count to determine offset
+	currentCount, err := s.db.GetVideoCountByChannel(id)
+	if err != nil {
+		jsonError(w, "Failed to get video count", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch next 50 videos starting after current count
+	// yt-dlp uses 1-indexed playlist positions
+	start := currentCount + 1
+	end := currentCount + 50
+
+	log.Printf("Fetching videos for channel %s (ID: %d), positions %d-%d", channel.URL, id, start, end)
+
+	videos, err := s.ytdlp.GetChannelVideos(channel.URL, start, end)
+	if err != nil {
+		log.Printf("Failed to fetch videos: %v", err)
+		jsonError(w, "Failed to fetch videos: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("yt-dlp returned %d videos", len(videos))
+
+	var savedCount int
+	if len(videos) > 0 {
+		// Check shorts status before saving
+		videoIDs := make([]string, len(videos))
+		for i, v := range videos {
+			videoIDs[i] = v.ID
+		}
+		shortsStatus := yt.CheckShortsStatus(videoIDs)
+
+		for _, v := range videos {
+			video := v.ToModel(channel.ID, channel.Name)
+			if isShort, ok := shortsStatus[video.ID]; ok {
+				video.IsShort = &isShort
+			}
+			if _, err := s.db.UpsertVideo(video); err != nil {
+				log.Printf("Failed to save video %s: %v", video.ID, err)
+				continue
+			}
+			savedCount++
+		}
+	}
+
+	jsonResponse(w, map[string]any{
+		"videosFound": savedCount,
+		"channel":     channel.Name,
+		"hasMore":     len(videos) == 50, // If we got 50, there might be more
+	})
+}
+
 // handleAPIGetChannelFeeds returns all feeds that contain a channel
 func (s *Server) handleAPIGetChannelFeeds(w http.ResponseWriter, r *http.Request) {
 	channelID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
