@@ -847,6 +847,164 @@ func (db *DB) DeleteWatchProgress(videoID string) error {
 	return err
 }
 
+// GetContinueWatching returns videos with 10-95% progress, ordered by most recently watched
+func (db *DB) GetContinueWatching(limit, offset int) ([]models.Video, map[string]*WatchProgress, int, error) {
+	// Get total count first
+	var total int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*)
+		FROM watch_progress wp
+		JOIN videos v ON wp.video_id = v.id
+		WHERE wp.duration_seconds > 0
+		  AND CAST(wp.progress_seconds AS REAL) / wp.duration_seconds >= 0.1
+		  AND CAST(wp.progress_seconds AS REAL) / wp.duration_seconds < 0.95
+	`).Scan(&total)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url,
+		       wp.video_id, wp.progress_seconds, wp.duration_seconds, wp.watched_at
+		FROM watch_progress wp
+		JOIN videos v ON wp.video_id = v.id
+		WHERE wp.duration_seconds > 0
+		  AND CAST(wp.progress_seconds AS REAL) / wp.duration_seconds >= 0.1
+		  AND CAST(wp.progress_seconds AS REAL) / wp.duration_seconds < 0.95
+		ORDER BY wp.watched_at DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	progressMap := make(map[string]*WatchProgress)
+	for rows.Next() {
+		var v models.Video
+		var isShort sql.NullBool
+		var wp WatchProgress
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL,
+			&wp.VideoID, &wp.ProgressSeconds, &wp.DurationSeconds, &wp.WatchedAt); err != nil {
+			return nil, nil, 0, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
+		}
+		videos = append(videos, v)
+		progressMap[v.ID] = &wp
+	}
+	return videos, progressMap, total, rows.Err()
+}
+
+// GetHotThisWeek returns unwatched videos from channels watched in the last 7 days
+func (db *DB) GetHotThisWeek(limit, offset int) ([]models.Video, int, error) {
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+
+	// Get total count first
+	var total int
+	err := db.conn.QueryRow(`
+		SELECT COUNT(DISTINCT v.id)
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.id IN (
+			SELECT DISTINCT v2.channel_id
+			FROM watch_progress wp
+			JOIN videos v2 ON wp.video_id = v2.id
+			WHERE wp.watched_at >= ?
+		)
+		AND (v.is_short IS NULL OR v.is_short = 0)
+		AND v.id NOT IN (
+			SELECT video_id FROM watch_progress
+			WHERE duration_seconds > 0
+			  AND CAST(progress_seconds AS REAL) / duration_seconds >= 0.95
+		)
+	`, sevenDaysAgo).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT v.id, v.channel_id, v.title, v.channel_name, v.thumbnail, v.duration, v.is_short, v.published, v.url
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.id IN (
+			SELECT DISTINCT v2.channel_id
+			FROM watch_progress wp
+			JOIN videos v2 ON wp.video_id = v2.id
+			WHERE wp.watched_at >= ?
+		)
+		AND (v.is_short IS NULL OR v.is_short = 0)
+		AND v.id NOT IN (
+			SELECT video_id FROM watch_progress
+			WHERE duration_seconds > 0
+			  AND CAST(progress_seconds AS REAL) / duration_seconds >= 0.95
+		)
+		ORDER BY v.published DESC
+		LIMIT ? OFFSET ?
+	`, sevenDaysAgo, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var videos []models.Video
+	for rows.Next() {
+		var v models.Video
+		var isShort sql.NullBool
+		if err := rows.Scan(&v.ID, &v.ChannelID, &v.Title, &v.ChannelName, &v.Thumbnail, &v.Duration, &isShort, &v.Published, &v.URL); err != nil {
+			return nil, 0, err
+		}
+		if isShort.Valid {
+			v.IsShort = &isShort.Bool
+		}
+		videos = append(videos, v)
+	}
+	return videos, total, rows.Err()
+}
+
+// GetSmartFeedCounts returns video counts for smart feeds
+func (db *DB) GetSmartFeedCounts() (continueWatching int, hotThisWeek int, error error) {
+	// Continue watching count
+	err := db.conn.QueryRow(`
+		SELECT COUNT(*)
+		FROM watch_progress wp
+		JOIN videos v ON wp.video_id = v.id
+		WHERE wp.duration_seconds > 0
+		  AND CAST(wp.progress_seconds AS REAL) / wp.duration_seconds >= 0.1
+		  AND CAST(wp.progress_seconds AS REAL) / wp.duration_seconds < 0.95
+	`).Scan(&continueWatching)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Hot this week count
+	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
+	err = db.conn.QueryRow(`
+		SELECT COUNT(DISTINCT v.id)
+		FROM videos v
+		JOIN channels c ON v.channel_id = c.id
+		WHERE c.id IN (
+			SELECT DISTINCT v2.channel_id
+			FROM watch_progress wp
+			JOIN videos v2 ON wp.video_id = v2.id
+			WHERE wp.watched_at >= ?
+		)
+		AND (v.is_short IS NULL OR v.is_short = 0)
+		AND v.id NOT IN (
+			SELECT video_id FROM watch_progress
+			WHERE duration_seconds > 0
+			  AND CAST(progress_seconds AS REAL) / duration_seconds >= 0.95
+		)
+	`, sevenDaysAgo).Scan(&hotThisWeek)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return continueWatching, hotThisWeek, nil
+}
+
 // SponsorBlock segment operations
 
 type SponsorBlockSegment struct {
