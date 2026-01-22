@@ -53,6 +53,9 @@
 	const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 	let playbackSpeed = $state(1);
 
+	// Theater mode - persisted in localStorage
+	let theaterMode = $state(false);
+
 	// SponsorBlock
 	let segments = $state<SponsorBlockSegment[]>([]);
 	let sponsorBlockEnabled = $state(true);
@@ -102,6 +105,22 @@
 			if (saved !== null) {
 				sponsorBlockEnabled = saved === 'true';
 			}
+		}
+	}
+
+	function loadTheaterModeSetting() {
+		if (typeof localStorage !== 'undefined') {
+			const saved = localStorage.getItem('theaterMode');
+			if (saved !== null) {
+				theaterMode = saved === 'true';
+			}
+		}
+	}
+
+	function setTheaterMode(enabled: boolean) {
+		theaterMode = enabled;
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('theaterMode', enabled.toString());
 		}
 	}
 
@@ -324,6 +343,7 @@
 	onMount(async () => {
 		loadSavedSpeed();
 		loadSponsorBlockSetting();
+		loadTheaterModeSetting();
 
 		try {
 			feeds = await getFeeds();
@@ -541,8 +561,8 @@
 	{/if}
 </svelte:head>
 
-<div class="max-w-7xl mx-auto">
-	<div class="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-8">
+<div class={theaterMode ? 'max-w-full px-4' : 'max-w-7xl mx-auto'}>
+	<div class={theaterMode ? 'grid grid-cols-1 gap-8' : 'grid lg:grid-cols-[minmax(0,1fr)_380px] gap-8'}>
 		<!-- Main Content -->
 		<div class="min-w-0 animate-fade-up" style="opacity: 0;">
 			<!-- Video Player -->
@@ -680,6 +700,24 @@
 							</span>
 						{/if}
 					</div>
+
+					<!-- Theater Mode Toggle (Desktop Only) -->
+					<button
+						onclick={() => setTheaterMode(!theaterMode)}
+						class="theater-mode-btn hidden lg:flex"
+						title={theaterMode ? 'Exit theater mode' : 'Theater mode'}
+					>
+						{#if theaterMode}
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+							</svg>
+						{:else}
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+							</svg>
+						{/if}
+						<span class="ml-1.5">{theaterMode ? 'Exit theater' : 'Theater'}</span>
+					</button>
 
 					<!-- Secondary Controls (Settings) -->
 					<details class="settings-dropdown">
@@ -835,9 +873,9 @@
 				Watch on YouTube
 			</a>
 
-			<!-- Mobile Up Next -->
+			<!-- Up Next (Mobile + Theater Mode) -->
 			{#if nearbyVideos.length > 0}
-				<div class="mt-8 lg:hidden">
+				<div class={theaterMode ? 'mt-8' : 'mt-8 lg:hidden'}>
 					<div class="flex items-center justify-between mb-4">
 						<h2 class="font-display font-semibold">Up Next</h2>
 						{#if nearbyFeedId > 0}
@@ -886,8 +924,8 @@
 			{/if}
 		</div>
 
-		<!-- Desktop Sidebar - Up Next -->
-		{#if nearbyVideos.length > 0}
+		<!-- Desktop Sidebar - Up Next (hidden in theater mode) -->
+		{#if nearbyVideos.length > 0 && !theaterMode}
 			<aside
 				class="hidden lg:block animate-fade-up stagger-2 transition-all duration-300"
 				style="opacity: 0;"
