@@ -107,4 +107,54 @@ test.describe('Smoke Tests', () => {
 		expect(data).toHaveProperty('videos');
 		expect(data).toHaveProperty('total');
 	});
+
+	test('API health check - channel pagination', async ({ request }) => {
+		// Get feeds first to find a channel
+		const feedsResponse = await request.get('/api/feeds');
+		const feeds = await feedsResponse.json();
+
+		if (feeds.length > 0) {
+			// Get first feed's channels
+			const feedResponse = await request.get(`/api/feeds/${feeds[0].id}`);
+			const feedData = await feedResponse.json();
+
+			if (feedData.channels && feedData.channels.length > 0) {
+				const channelId = feedData.channels[0].id;
+
+				// Test pagination params
+				const response = await request.get(`/api/channels/${channelId}?limit=5&offset=0`);
+				expect(response.ok()).toBeTruthy();
+
+				const data = await response.json();
+				expect(data).toHaveProperty('channel');
+				expect(data).toHaveProperty('videos');
+				expect(data).toHaveProperty('hasMore');
+				expect(Array.isArray(data.videos)).toBeTruthy();
+				expect(data.videos.length).toBeLessThanOrEqual(5);
+			}
+		}
+	});
+
+	test('channel page loads with load more button', async ({ page }) => {
+		// Get a channel ID from the API
+		const feedsResponse = await page.request.get('/api/feeds');
+		const feeds = await feedsResponse.json();
+
+		if (feeds.length > 0) {
+			const feedResponse = await page.request.get(`/api/feeds/${feeds[0].id}`);
+			const feedData = await feedResponse.json();
+
+			if (feedData.channels && feedData.channels.length > 0) {
+				const channelId = feedData.channels[0].id;
+
+				await page.goto(`/channels/${channelId}`);
+
+				// Should show channel name
+				await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+
+				// Should show video count (may include '+' if hasMore)
+				await expect(page.getByText(/\d+\+? videos/)).toBeVisible();
+			}
+		}
+	});
 });

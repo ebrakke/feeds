@@ -561,14 +561,14 @@ func (db *DB) GetVideosByFeed(feedID int64, limit, offset int) ([]models.Video, 
 	return videos, total, rows.Err()
 }
 
-func (db *DB) GetVideosByChannel(channelID int64, limit int) ([]models.Video, error) {
+func (db *DB) GetVideosByChannel(channelID int64, limit, offset int) ([]models.Video, error) {
 	rows, err := db.conn.Query(`
 		SELECT id, channel_id, title, channel_name, thumbnail, duration, is_short, published, url
 		FROM videos
 		WHERE channel_id = ?
 		ORDER BY published DESC
-		LIMIT ?
-	`, channelID, limit)
+		LIMIT ? OFFSET ?
+	`, channelID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

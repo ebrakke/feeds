@@ -1341,7 +1341,7 @@ func (s *Server) handleChannelPage(w http.ResponseWriter, r *http.Request) {
 	}
 	feed := feeds[0]
 
-	videos, err := s.db.GetVideosByChannel(channelID, 50)
+	videos, err := s.db.GetVideosByChannel(channelID, 50, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

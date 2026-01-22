@@ -5,40 +5,82 @@
 	import type { Channel, Video, WatchProgress, Feed } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
 
+	const VIDEOS_PER_PAGE = 20;
+
 	let channel = $state<Channel | null>(null);
 	let videos = $state<Video[]>([]);
 	let progressMap = $state<Record<string, WatchProgress>>({});
 	let feeds = $state<Feed[]>([]);
 	let allFeeds = $state<Feed[]>([]);
 	let loading = $state(true);
+	let loadingMore = $state(false);
+	let hasMore = $state(false);
 	let refreshing = $state(false);
 	let error = $state<string | null>(null);
 	let showAddDropdown = $state(false);
 	let addingToFeed = $state(false);
 	let removingFromFeed = $state<number | null>(null);
+	let loadMoreTrigger = $state<HTMLDivElement | null>(null);
 
 	let id = $derived(parseInt($page.params.id));
 	let scrollRestoreKey = $derived(`channel-${id}-last-video`);
 	let availableFeeds = $derived(allFeeds.filter(f => !feeds.some(cf => cf.id === f.id)));
 
-	onMount(async () => {
-		await loadChannel();
+	let observer: IntersectionObserver | null = null;
+
+	onMount(() => {
+		loadChannel();
+
+		// Set up intersection observer for infinite scroll
+		observer = new IntersectionObserver(
+			(entries) => {
+				if (entries[0].isIntersecting && hasMore && !loadingMore) {
+					loadMore();
+				}
+			},
+			{ rootMargin: '200px' }
+		);
+
+		return () => observer?.disconnect();
+	});
+
+	$effect(() => {
+		if (loadMoreTrigger && observer) {
+			observer.observe(loadMoreTrigger);
+		}
 	});
 
 	async function loadChannel() {
 		loading = true;
 		error = null;
 		try {
-			const data = await getChannel(id);
+			const data = await getChannel(id, { limit: VIDEOS_PER_PAGE, offset: 0 });
 			channel = data.channel;
 			videos = data.videos;
 			progressMap = data.progressMap || {};
 			feeds = data.feeds || [];
 			allFeeds = data.allFeeds || [];
+			hasMore = data.hasMore;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load channel';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadMore() {
+		if (loadingMore || !hasMore) return;
+
+		loadingMore = true;
+		try {
+			const data = await getChannel(id, { limit: VIDEOS_PER_PAGE, offset: videos.length });
+			videos = [...videos, ...data.videos];
+			progressMap = { ...progressMap, ...data.progressMap };
+			hasMore = data.hasMore;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load more videos';
+		} finally {
+			loadingMore = false;
 		}
 	}
 
@@ -155,7 +197,7 @@
 				<div>
 					<h1 class="text-2xl font-display font-bold mb-1">{channel.name}</h1>
 					<div class="flex items-center gap-3 text-sm">
-						<span class="text-text-muted">{videos.length} videos</span>
+						<span class="text-text-muted">{videos.length}{hasMore ? '+' : ''} videos</span>
 						<span class="text-text-dim">·</span>
 						<a
 							href={channel.url}
@@ -270,5 +312,26 @@
 		<div class="animate-fade-up stagger-1" style="opacity: 0;">
 			<VideoGrid {videos} {progressMap} showChannel={false} onWatchedToggle={handleWatchedToggle} {scrollRestoreKey} />
 		</div>
+
+		<!-- Load More -->
+		{#if hasMore}
+			<div bind:this={loadMoreTrigger} class="flex justify-center py-8">
+				<button
+					onclick={loadMore}
+					disabled={loadingMore}
+					class="btn btn-secondary"
+				>
+					{#if loadingMore}
+						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+						</svg>
+						Loading...
+					{:else}
+						Load more videos
+					{/if}
+				</button>
+			</div>
+		{/if}
 	{/if}
 {/if}

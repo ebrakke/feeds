@@ -89,14 +89,22 @@ export async function getShuffledVideos(id: number, limit = 100, offset = 0): Pr
 }
 
 // Channels
-export async function getChannel(id: number): Promise<{
+export async function getChannel(
+	id: number,
+	options?: { limit?: number; offset?: number }
+): Promise<{
 	channel: Channel;
 	videos: Video[];
 	progressMap: Record<string, WatchProgress>;
 	feeds: Feed[];
 	allFeeds: Feed[];
+	hasMore: boolean;
 }> {
-	return fetchJSON(`/channels/${id}`);
+	const params = new URLSearchParams();
+	if (options?.limit) params.set('limit', options.limit.toString());
+	if (options?.offset) params.set('offset', options.offset.toString());
+	const query = params.toString();
+	return fetchJSON(`/channels/${id}${query ? `?${query}` : ''}`);
 }
 
 export async function addChannel(feedId: number, url: string): Promise<Channel> {

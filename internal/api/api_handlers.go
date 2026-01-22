@@ -437,16 +437,36 @@ func (s *Server) handleAPIGetChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse pagination params
+	limit := 20
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
 	channel, err := s.db.GetChannel(id)
 	if err != nil {
 		jsonError(w, "Channel not found", http.StatusNotFound)
 		return
 	}
 
-	videos, err := s.db.GetVideosByChannel(id, 100)
+	// Fetch one extra to determine if there are more videos
+	videos, err := s.db.GetVideosByChannel(id, limit+1, offset)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	hasMore := len(videos) > limit
+	if hasMore {
+		videos = videos[:limit]
 	}
 
 	// Get all feeds this channel belongs to
@@ -471,6 +491,7 @@ func (s *Server) handleAPIGetChannel(w http.ResponseWriter, r *http.Request) {
 		"progressMap": progressMap,
 		"feeds":       feeds,
 		"allFeeds":    allFeeds,
+		"hasMore":     hasMore,
 	})
 }
 
