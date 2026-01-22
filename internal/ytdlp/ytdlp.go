@@ -45,18 +45,19 @@ type Thumbnail struct {
 
 // VideoInfo represents yt-dlp JSON output for a video
 type VideoInfo struct {
-	ID          string      `json:"id"`
-	Title       string      `json:"title"`
-	Channel     string      `json:"channel"`
-	ChannelURL  string      `json:"channel_url"`
-	Thumbnail   string      `json:"thumbnail"`
-	Thumbnails  []Thumbnail `json:"thumbnails"`
-	Duration    float64     `json:"duration"`
-	UploadDate  string      `json:"upload_date"`
-	WebpageURL  string      `json:"webpage_url"`
-	URL         string      `json:"url"`
-	Description string      `json:"description"`
-	ViewCount   int64       `json:"view_count"`
+	ID            string      `json:"id"`
+	Title         string      `json:"title"`
+	Channel       string      `json:"channel"`
+	ChannelURL    string      `json:"channel_url"`
+	Thumbnail     string      `json:"thumbnail"`
+	Thumbnails    []Thumbnail `json:"thumbnails"`
+	Duration      float64     `json:"duration"`
+	UploadDate    string      `json:"upload_date"`
+	WebpageURL    string      `json:"webpage_url"`
+	URL           string      `json:"url"`
+	Description   string      `json:"description"`
+	ViewCount     int64       `json:"view_count"`
+	PlaylistIndex int         `json:"playlist_index"` // Position in channel's video list (1-indexed, newest first)
 }
 
 // GetBestThumbnail returns the best available thumbnail URL
@@ -126,12 +127,11 @@ func (y *YTDLP) GetChannelVideos(channelURL string, start, end int) ([]VideoInfo
 	}
 
 	args := []string{
+		"--flat-playlist",
 		"--playlist-start", fmt.Sprintf("%d", start),
 		"--playlist-end", fmt.Sprintf("%d", end),
 		"--dump-json",
-		"--no-download",
 		"--no-warnings",
-		"--ignore-errors",
 	}
 	args = y.appendCookiesArgs(args)
 	args = append(args, videosURL)
@@ -143,12 +143,8 @@ func (y *YTDLP) GetChannelVideos(channelURL string, start, end int) ([]VideoInfo
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Run command - with --ignore-errors, yt-dlp may return non-zero exit even on partial success
-	_ = cmd.Run()
-
-	// Log stderr for debugging but don't fail - we use --ignore-errors so some videos may fail
-	if stderr.Len() > 0 {
-		log.Printf("yt-dlp stderr (some videos may have been skipped): %s", stderr.String())
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("yt-dlp error: %v, stderr: %s", err, stderr.String())
 	}
 
 	log.Printf("yt-dlp stdout length: %d bytes", stdout.Len())
@@ -630,6 +626,12 @@ func (v *VideoInfo) ToModel(channelID int64, channelName string) *models.Video {
 		if t, err := time.Parse("20060102", v.UploadDate); err == nil {
 			published = t
 		}
+	} else if v.PlaylistIndex > 0 {
+		// Estimate date based on playlist position if no upload_date available
+		// Assume roughly 3 videos per week on average (conservative estimate)
+		// This keeps older videos sorted correctly relative to each other
+		daysAgo := v.PlaylistIndex * 7 / 3 // ~2.3 days per video
+		published = time.Now().AddDate(0, 0, -daysAgo)
 	}
 
 	// Get video URL - flat-playlist uses "url" field, full info uses "webpage_url"

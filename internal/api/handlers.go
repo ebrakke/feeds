@@ -120,7 +120,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/feeds/{feedId}/channels/{channelId}", s.handleAPIRemoveChannelFromFeed)
 	mux.HandleFunc("POST /api/channels/{id}/feeds", s.handleAPIAddChannelToFeed)
 	mux.HandleFunc("POST /api/channels/{id}/refresh", s.handleAPIRefreshChannel)
-	mux.HandleFunc("POST /api/channels/{id}/fetch-more", s.handleAPIFetchMoreVideos)
+	mux.HandleFunc("GET /api/channels/{id}/fetch-more", s.handleAPIFetchMoreVideos)
 
 	mux.HandleFunc("GET /api/videos/recent", s.handleAPIGetRecentVideos)
 	mux.HandleFunc("GET /api/videos/history", s.handleAPIGetHistory)

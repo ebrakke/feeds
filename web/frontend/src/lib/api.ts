@@ -136,12 +136,54 @@ export async function refreshChannel(id: number): Promise<{
 	return fetchJSON(`/channels/${id}/refresh`, { method: 'POST' });
 }
 
-export async function fetchMoreChannelVideos(id: number): Promise<{
+export interface FetchMoreProgress {
+	batch: number;
+	maxBatches: number;
+	fetching?: number;
+	saved?: number;
+	totalSaved: number;
+	status: 'fetching' | 'saved';
+}
+
+export interface FetchMoreComplete {
 	videosFound: number;
 	channel: string;
 	hasMore: boolean;
-}> {
-	return fetchJSON(`/channels/${id}/fetch-more`, { method: 'POST' });
+}
+
+export interface FetchMoreError {
+	message: string;
+}
+
+export function fetchMoreChannelVideos(
+	id: number,
+	onProgress: (progress: FetchMoreProgress) => void
+): Promise<FetchMoreComplete> {
+	return new Promise((resolve, reject) => {
+		const es = new EventSource(`/api/channels/${id}/fetch-more`);
+
+		es.addEventListener('progress', (e: MessageEvent) => {
+			const data = JSON.parse(e.data) as FetchMoreProgress;
+			onProgress(data);
+		});
+
+		es.addEventListener('complete', (e: MessageEvent) => {
+			const data = JSON.parse(e.data) as FetchMoreComplete;
+			es.close();
+			resolve(data);
+		});
+
+		es.addEventListener('error', (e: MessageEvent) => {
+			const data = JSON.parse(e.data) as FetchMoreError;
+			es.close();
+			reject(new Error(data.message));
+		});
+
+		es.onerror = () => {
+			es.close();
+			reject(new Error('Connection lost'));
+		};
+	});
 }
 
 // Videos

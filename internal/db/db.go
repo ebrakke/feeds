@@ -513,6 +513,10 @@ func (db *DB) UpsertVideo(v *models.Video) (bool, error) {
 			is_short = CASE
 				WHEN excluded.is_short IS NOT NULL THEN excluded.is_short
 				ELSE videos.is_short
+			END,
+			published = CASE
+				WHEN excluded.published < videos.published THEN excluded.published
+				ELSE videos.published
 			END
 	`, v.ID, v.ChannelID, v.Title, v.ChannelName, v.Thumbnail, v.Duration, isShort, v.Published, v.URL)
 	return isInsert, err

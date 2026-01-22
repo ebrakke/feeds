@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { getChannel, refreshChannel, fetchMoreChannelVideos, addChannelToFeed, removeChannelFromFeed } from '$lib/api';
+	import { getChannel, refreshChannel, fetchMoreChannelVideos, addChannelToFeed, removeChannelFromFeed, type FetchMoreProgress } from '$lib/api';
 	import type { Channel, Video, WatchProgress, Feed } from '$lib/types';
 	import VideoGrid from '$lib/components/VideoGrid.svelte';
 
@@ -18,6 +18,7 @@
 	let refreshing = $state(false);
 	let fetchingMore = $state(false);
 	let canFetchMore = $state(true);
+	let fetchProgress = $state<FetchMoreProgress | null>(null);
 	let error = $state<string | null>(null);
 	let showAddDropdown = $state(false);
 	let addingToFeed = $state(false);
@@ -100,16 +101,21 @@
 
 	async function handleFetchMore() {
 		fetchingMore = true;
+		fetchProgress = null;
 		error = null;
 		try {
-			const result = await fetchMoreChannelVideos(id);
+			const result = await fetchMoreChannelVideos(id, (progress) => {
+				fetchProgress = progress;
+			});
 			canFetchMore = result.hasMore;
+			fetchProgress = null;
 			// Reload the channel to get the new videos
 			await loadChannel();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to fetch more videos';
 		} finally {
 			fetchingMore = false;
+			fetchProgress = null;
 		}
 	}
 
@@ -237,15 +243,24 @@
 				<button
 					onclick={handleFetchMore}
 					disabled={fetchingMore || !canFetchMore}
-					class="btn btn-secondary flex-1 sm:flex-none"
+					class="btn btn-secondary flex-1 sm:flex-none min-w-[140px]"
 					title="Fetch older videos from YouTube"
 				>
 					{#if fetchingMore}
-						<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+						<svg class="animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none">
 							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
 							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
 						</svg>
-						<span class="sm:inline">Fetching...</span>
+						{#if fetchProgress}
+							<span class="text-xs tabular-nums">
+								{fetchProgress.status === 'fetching' ? 'Fetching' : 'Saving'} {fetchProgress.batch}/{fetchProgress.maxBatches}
+								{#if fetchProgress.totalSaved > 0}
+									({fetchProgress.totalSaved})
+								{/if}
+							</span>
+						{:else}
+							<span class="sm:inline">Starting...</span>
+						{/if}
 					{:else}
 						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>

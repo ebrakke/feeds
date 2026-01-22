@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -676,6 +677,7 @@ func (s *Server) handleAPIRefreshChannel(w http.ResponseWriter, r *http.Request)
 }
 
 // handleAPIFetchMoreVideos uses yt-dlp to fetch older videos from a channel's history
+// It streams progress updates via Server-Sent Events (SSE)
 func (s *Server) handleAPIFetchMoreVideos(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -696,24 +698,66 @@ func (s *Server) handleAPIFetchMoreVideos(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Fetch next 50 videos starting after current count
-	// yt-dlp uses 1-indexed playlist positions
-	start := currentCount + 1
-	end := currentCount + 50
+	// Set up SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
-	log.Printf("Fetching videos for channel %s (ID: %d), positions %d-%d", channel.URL, id, start, end)
-
-	videos, err := s.ytdlp.GetChannelVideos(channel.URL, start, end)
-	if err != nil {
-		log.Printf("Failed to fetch videos: %v", err)
-		jsonError(w, "Failed to fetch videos: "+err.Error(), http.StatusInternalServerError)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		jsonError(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("yt-dlp returned %d videos", len(videos))
+	// Helper to send SSE events
+	sendEvent := func(eventType string, data any) {
+		jsonData, _ := json.Marshal(data)
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, jsonData)
+		flusher.Flush()
+	}
 
-	var savedCount int
-	if len(videos) > 0 {
+	// Fetch 10 videos at a time, up to 50 total
+	const batchSize = 10
+	const maxBatches = 5
+	totalSaved := 0
+	hasMore := true
+
+	for batch := 0; batch < maxBatches && hasMore; batch++ {
+		start := currentCount + (batch * batchSize) + 1
+		end := start + batchSize - 1
+
+		// Send progress update
+		sendEvent("progress", map[string]any{
+			"batch":      batch + 1,
+			"maxBatches": maxBatches,
+			"fetching":   batchSize,
+			"totalSaved": totalSaved,
+			"status":     "fetching",
+		})
+
+		log.Printf("Fetching videos for channel %s (ID: %d), positions %d-%d", channel.URL, id, start, end)
+
+		videos, err := s.ytdlp.GetChannelVideos(channel.URL, start, end)
+		if err != nil {
+			log.Printf("Failed to fetch videos: %v", err)
+			sendEvent("error", map[string]any{
+				"message": "Failed to fetch videos: " + err.Error(),
+			})
+			return
+		}
+
+		log.Printf("yt-dlp returned %d videos in batch %d", len(videos), batch+1)
+
+		// If we got fewer videos than requested, there are no more
+		if len(videos) < batchSize {
+			hasMore = false
+		}
+
+		if len(videos) == 0 {
+			break
+		}
+
 		// Check shorts status before saving
 		videoIDs := make([]string, len(videos))
 		for i, v := range videos {
@@ -721,6 +765,7 @@ func (s *Server) handleAPIFetchMoreVideos(w http.ResponseWriter, r *http.Request
 		}
 		shortsStatus := yt.CheckShortsStatus(videoIDs)
 
+		batchSaved := 0
 		for _, v := range videos {
 			video := v.ToModel(channel.ID, channel.Name)
 			if isShort, ok := shortsStatus[video.ID]; ok {
@@ -730,14 +775,25 @@ func (s *Server) handleAPIFetchMoreVideos(w http.ResponseWriter, r *http.Request
 				log.Printf("Failed to save video %s: %v", video.ID, err)
 				continue
 			}
-			savedCount++
+			batchSaved++
 		}
+		totalSaved += batchSaved
+
+		// Send batch complete update
+		sendEvent("progress", map[string]any{
+			"batch":      batch + 1,
+			"maxBatches": maxBatches,
+			"saved":      batchSaved,
+			"totalSaved": totalSaved,
+			"status":     "saved",
+		})
 	}
 
-	jsonResponse(w, map[string]any{
-		"videosFound": savedCount,
+	// Send final complete event
+	sendEvent("complete", map[string]any{
+		"videosFound": totalSaved,
 		"channel":     channel.Name,
-		"hasMore":     len(videos) == 50, // If we got 50, there might be more
+		"hasMore":     hasMore,
 	})
 }
 
