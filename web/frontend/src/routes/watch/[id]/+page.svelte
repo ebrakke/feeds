@@ -769,7 +769,13 @@
 						{#if loading}
 							<span class="skeleton inline-block h-5 w-32"></span>
 						{:else}
-							<span class="font-medium">{channelName}</span>
+							{#if channelId}
+								<a href="/channels/{channelId}" class="font-medium hover:text-emerald-400 transition-colors">
+									{channelName}
+								</a>
+							{:else}
+								<span class="font-medium">{channelName}</span>
+							{/if}
 							{#if viewCount > 0}
 								<span class="text-text-muted">·</span>
 								<span class="text-text-muted">{formatViewCount(viewCount)}</span>
