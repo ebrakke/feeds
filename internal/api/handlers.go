@@ -1854,16 +1854,16 @@ func (s *Server) handleAPIGetSmartFeeds(w http.ResponseWriter, r *http.Request) 
 
 	feeds := []map[string]any{
 		{
-			"slug":       "continue-watching",
-			"name":       "Continue Watching",
-			"icon":       "play",
-			"videoCount": continueWatching,
-		},
-		{
 			"slug":       "hot-this-week",
 			"name":       "Hot This Week",
 			"icon":       "flame",
 			"videoCount": hotThisWeek,
+		},
+		{
+			"slug":       "continue-watching",
+			"name":       "Continue Watching",
+			"icon":       "play",
+			"videoCount": continueWatching,
 		},
 	}
 

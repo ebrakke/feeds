@@ -19,6 +19,12 @@ var embedMigrations embed.FS
 
 var ErrSystemFeed = errors.New("cannot delete system feed")
 
+// Progress thresholds for smart feeds
+const (
+	ContinueWatchingMinProgress = 0.1  // 10% - minimum progress to show in Continue Watching
+	FullyWatchedThreshold       = 0.95 // 95% - considered "fully watched"
+)
+
 type DB struct {
 	conn *sql.DB
 }
