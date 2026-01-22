@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getFeeds, reorderFeeds } from '$lib/api';
-	import type { Feed } from '$lib/types';
+	import { getFeeds, reorderFeeds, getSmartFeeds } from '$lib/api';
+	import type { Feed, SmartFeed } from '$lib/types';
 	import { navigationOrigin } from '$lib/stores/navigation';
 
 	let feeds = $state<Feed[]>([]);
+	let smartFeeds = $state<SmartFeed[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
@@ -18,7 +19,12 @@
 
 	onMount(async () => {
 		try {
-			feeds = await getFeeds();
+			const [feedsData, smartData] = await Promise.all([
+				getFeeds(),
+				getSmartFeeds()
+			]);
+			feeds = feedsData;
+			smartFeeds = smartData.feeds || [];
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load feeds';
 		} finally {
@@ -150,9 +156,53 @@
 		</a>
 	</div>
 {:else}
+	<!-- Smart Feeds Section -->
+	{#if smartFeeds.length > 0}
+		<div class="mb-6">
+			<h2 class="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">Smart Feeds</h2>
+			<div class="space-y-2">
+				{#each smartFeeds as smartFeed (smartFeed.slug)}
+					<a
+						href="/smart/{smartFeed.slug}"
+						class="card flex items-center justify-between p-4 hover:bg-elevated transition-colors group"
+					>
+						<div class="flex items-center gap-3 min-w-0">
+							<!-- Smart feed icon -->
+							<div class="w-10 h-10 rounded-lg bg-gradient-to-br {smartFeed.icon === 'flame' ? 'from-orange-500/20 to-orange-600/20' : 'from-emerald-500/20 to-emerald-600/20'} flex items-center justify-center flex-shrink-0">
+								{#if smartFeed.icon === 'play'}
+									<svg class="w-5 h-5 text-emerald-500" fill="currentColor" viewBox="0 0 24 24">
+										<path d="M8 5v14l11-7z"/>
+									</svg>
+								{:else if smartFeed.icon === 'flame'}
+									<svg class="w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 24 24">
+										<path d="M12 23c-3.866 0-7-3.358-7-7.5 0-2.84 1.5-5.5 3-7.5 1.5 2 3 3 5 3s3.5-1 5-3c1.5 2 3 4.66 3 7.5 0 4.142-3.134 7.5-7 7.5zm0-5c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3z"/>
+									</svg>
+								{:else}
+									<svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+									</svg>
+								{/if}
+							</div>
+							<!-- Feed name -->
+							<span class="font-medium text-text-primary truncate">{smartFeed.name}</span>
+							{#if smartFeed.videoCount > 0}
+								<span class="px-2 py-0.5 text-xs font-medium bg-emerald-500/20 text-emerald-400 rounded-full flex-shrink-0">
+									{smartFeed.videoCount}
+								</span>
+							{/if}
+						</div>
+						<svg class="w-5 h-5 text-text-muted group-hover:text-text-secondary transition-colors flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+						</svg>
+					</a>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
 	<!-- Header with Edit button -->
 	<div class="flex items-center justify-between mb-4">
-		<h1 class="text-lg font-medium text-text-primary">Feeds</h1>
+		<h1 class="text-lg font-medium text-text-primary">Your Feeds</h1>
 		<button
 			onclick={toggleEditMode}
 			class="text-sm font-medium {editMode ? 'text-emerald-500' : 'text-text-muted hover:text-text-secondary'} transition-colors"
