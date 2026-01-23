@@ -441,6 +441,10 @@
 				}
 				unsubscribeProgress = subscribeToDownloadProgress(videoId, (data) => {
 					console.log('Download progress:', data);
+					// Only process updates for the quality we're downloading
+					if (data.quality !== quality) {
+						return;
+					}
 					if (data.status === 'complete') {
 						cachedQualities = [...cachedQualities, data.quality];
 						downloadingQuality = null;
@@ -756,32 +760,29 @@
 									{@const isCached = cachedQualities.includes(q)}
 									{@const isDownloading = downloadingQuality === q}
 									{@const isActive = selectedQuality === q && isCached}
-									{@const qNum = parseInt(q)}
-									{#if isCached || qNum > actualHeight || actualHeight === 0}
-										<button
-											class="download-hd-btn"
-											class:cached={isCached}
-											class:active={isActive}
-											class:downloading={isDownloading}
-											onclick={() => handleQualitySelect(q)}
-											disabled={downloadingQuality !== null && !isDownloading && !isCached}
-										>
-											{#if isDownloading}
-												<span class="download-hd-progress">{Math.round(downloadProgress)}%</span>
-											{:else if isCached}
-												<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-													<path d="M20 6L9 17l-5-5"/>
-												</svg>
-											{:else}
-												<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-													<polyline points="7,10 12,15 17,10"/>
-													<line x1="12" y1="15" x2="12" y2="3"/>
-												</svg>
-											{/if}
-											<span>{q}p</span>
-										</button>
-									{/if}
+									<button
+										class="download-hd-btn"
+										class:cached={isCached}
+										class:active={isActive}
+										class:downloading={isDownloading}
+										onclick={() => handleQualitySelect(q)}
+										disabled={downloadingQuality !== null && !isDownloading && !isCached}
+									>
+										{#if isDownloading}
+											<span class="download-hd-progress">{Math.round(downloadProgress)}%</span>
+										{:else if isCached}
+											<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+												<path d="M20 6L9 17l-5-5"/>
+											</svg>
+										{:else}
+											<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+												<polyline points="7,10 12,15 17,10"/>
+												<line x1="12" y1="15" x2="12" y2="3"/>
+											</svg>
+										{/if}
+										<span>{q}p</span>
+									</button>
 								{/each}
 							</div>
 							{#if downloadError}

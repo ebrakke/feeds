@@ -4,13 +4,16 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const (
 	videoCacheDir        = "/tmp/feeds-video-cache"
 	videoCacheTTL        = 1 * time.Hour
-	cacheCleanupInterval = 10 * time.Minute
+	cacheCleanupInterval = 5 * time.Minute
+	maxCacheSize         = 5 * 1024 * 1024 * 1024  // 5GB max cache size
+	orphanedTmpTTL       = 30 * time.Minute        // Clean .tmp files older than 30 min (stale downloads)
 )
 
 const (
@@ -64,6 +67,10 @@ func NewVideoCache() *VideoCache {
 
 	vc := &VideoCache{}
 
+	// Run cleanup immediately on startup to clear stale files from previous sessions
+	log.Printf("Running initial cache cleanup...")
+	vc.cleanup()
+
 	// Start cleanup goroutine
 	go vc.cleanupLoop()
 
@@ -114,13 +121,26 @@ func (vc *VideoCache) cleanupLoop() {
 	}
 }
 
+// cacheFileInfo holds info about a cached file for cleanup decisions
+type cacheFileInfo struct {
+	path    string
+	size    int64
+	modTime time.Time
+}
+
 func (vc *VideoCache) cleanup() {
 	entries, err := os.ReadDir(videoCacheDir)
 	if err != nil {
+		log.Printf("Cache cleanup: failed to read directory: %v", err)
 		return
 	}
 
 	now := time.Now()
+	var files []cacheFileInfo
+	var totalSize int64
+	var removedCount int
+
+	// Collect file info and clean orphaned .tmp files
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -131,11 +151,66 @@ func (vc *VideoCache) cleanup() {
 			continue
 		}
 
-		if now.Sub(info.ModTime()) > videoCacheTTL {
-			path := filepath.Join(videoCacheDir, entry.Name())
+		path := filepath.Join(videoCacheDir, entry.Name())
+		name := entry.Name()
+
+		// Clean orphaned .tmp files (stale downloads from crashes or timeouts)
+		if strings.HasSuffix(name, ".tmp") && now.Sub(info.ModTime()) > orphanedTmpTTL {
 			if err := os.Remove(path); err == nil {
-				log.Printf("Cleaned up expired cache file: %s", entry.Name())
+				log.Printf("Cleaned up orphaned temp file: %s (age: %v)", name, now.Sub(info.ModTime()).Round(time.Minute))
+				removedCount++
+			}
+			continue
+		}
+
+		files = append(files, cacheFileInfo{
+			path:    path,
+			size:    info.Size(),
+			modTime: info.ModTime(),
+		})
+		totalSize += info.Size()
+	}
+
+	// First pass: remove files older than TTL
+	for i := len(files) - 1; i >= 0; i-- {
+		if now.Sub(files[i].modTime) > videoCacheTTL {
+			if err := os.Remove(files[i].path); err == nil {
+				log.Printf("Cleaned up expired cache file: %s (age: %v)", filepath.Base(files[i].path), now.Sub(files[i].modTime).Round(time.Minute))
+				totalSize -= files[i].size
+				removedCount++
+				// Remove from slice
+				files = append(files[:i], files[i+1:]...)
 			}
 		}
+	}
+
+	// Second pass: if still over max size, remove oldest files until under limit
+	if totalSize > maxCacheSize {
+		log.Printf("Cache size %.2f GB exceeds max %.2f GB, cleaning oldest files", float64(totalSize)/(1024*1024*1024), float64(maxCacheSize)/(1024*1024*1024))
+
+		// Sort by modification time (oldest first)
+		for i := 0; i < len(files)-1; i++ {
+			for j := i + 1; j < len(files); j++ {
+				if files[i].modTime.After(files[j].modTime) {
+					files[i], files[j] = files[j], files[i]
+				}
+			}
+		}
+
+		// Remove oldest files until under limit
+		for _, f := range files {
+			if totalSize <= maxCacheSize {
+				break
+			}
+			if err := os.Remove(f.path); err == nil {
+				log.Printf("Cleaned up cache file to reduce size: %s (%.2f MB)", filepath.Base(f.path), float64(f.size)/(1024*1024))
+				totalSize -= f.size
+				removedCount++
+			}
+		}
+	}
+
+	if removedCount > 0 || totalSize > 0 {
+		log.Printf("Cache cleanup complete: removed %d files, current size: %.2f GB", removedCount, float64(totalSize)/(1024*1024*1024))
 	}
 }
