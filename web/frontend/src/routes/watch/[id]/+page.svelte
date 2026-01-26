@@ -219,13 +219,13 @@
 		}
 	});
 
-	// Effect to sync audio and video elements when backgrounding/foregrounding
-	$effect(() => {
+	// Function to handle background/foreground transitions
+	function handleVisibilityTransition(isNowBackgrounded: boolean) {
 		if (loading || error || youtubeMode) return;
 		if (!videoElement || !audioElement || !lastLoadedURL) return;
 
 		// When backgrounded: switch from video to audio
-		if (isBackgrounded) {
+		if (isNowBackgrounded) {
 			const currentTime = videoElement.currentTime;
 			const wasPlaying = !videoElement.paused;
 
@@ -284,7 +284,7 @@
 				videoElement.addEventListener('loadedmetadata', syncVideo, { once: true });
 			}
 		}
-	});
+	}
 
 	function setSponsorBlockEnabled(enabled: boolean) {
 		sponsorBlockEnabled = enabled;
@@ -524,7 +524,15 @@
 
 		// Handle visibility changes for background audio
 		const handleVisibilityChange = () => {
-			isBackgrounded = document.hidden;
+			const wasBackgrounded = isBackgrounded;
+			const nowBackgrounded = document.hidden;
+
+			// Only trigger transition if state actually changed
+			if (wasBackgrounded !== nowBackgrounded) {
+				isBackgrounded = nowBackgrounded;
+				// Use setTimeout to ensure state update completes first
+				setTimeout(() => handleVisibilityTransition(nowBackgrounded), 0);
+			}
 		};
 
 		document.addEventListener('visibilitychange', handleVisibilityChange);
