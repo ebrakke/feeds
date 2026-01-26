@@ -56,6 +56,12 @@
 	// Theater mode - persisted in localStorage
 	let theaterMode = $state(false);
 
+	// YouTube player mode - watch in YouTube iframe to record to YouTube history
+	let youtubeMode = $state(false);
+	let youtubePlayer: YT.Player | null = null;
+	let youtubePlayerReady = $state(false);
+	let youtubeContainerRef = $state<HTMLDivElement | null>(null);
+
 	// SponsorBlock
 	let segments = $state<SponsorBlockSegment[]>([]);
 	let sponsorBlockEnabled = $state(true);
@@ -124,6 +130,91 @@
 		}
 	}
 
+	// YouTube IFrame API integration
+	function loadYouTubeAPI(): Promise<void> {
+		return new Promise((resolve) => {
+			if (window.YT && window.YT.Player) {
+				resolve();
+				return;
+			}
+
+			// Set up callback before loading script
+			window.onYouTubeIframeAPIReady = () => {
+				resolve();
+			};
+
+			// Load the API script if not already loaded
+			if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+				const tag = document.createElement('script');
+				tag.src = 'https://www.youtube.com/iframe_api';
+				document.head.appendChild(tag);
+			}
+		});
+	}
+
+	async function createYouTubePlayer() {
+		if (!youtubeContainerRef || !videoId) return;
+
+		await loadYouTubeAPI();
+
+		// Destroy existing player if any
+		if (youtubePlayer) {
+			youtubePlayer.destroy();
+			youtubePlayer = null;
+		}
+
+		youtubePlayerReady = false;
+
+		youtubePlayer = new window.YT.Player(youtubeContainerRef, {
+			videoId: videoId,
+			playerVars: {
+				autoplay: 1,
+				modestbranding: 1,
+				rel: 0,
+			},
+			events: {
+				onReady: (event: YT.PlayerEvent) => {
+					youtubePlayerReady = true;
+					// Apply playback speed
+					if (playbackSpeed !== 1) {
+						event.target.setPlaybackRate(playbackSpeed);
+					}
+				},
+			},
+		});
+	}
+
+	function destroyYouTubePlayer() {
+		if (youtubePlayer) {
+			youtubePlayer.destroy();
+			youtubePlayer = null;
+			youtubePlayerReady = false;
+		}
+	}
+
+	// Effect to create/destroy YouTube player when mode changes
+	$effect(() => {
+		if (youtubeMode && youtubeContainerRef) {
+			createYouTubePlayer();
+		} else {
+			destroyYouTubePlayer();
+		}
+	});
+
+	// Effect to update YouTube player speed when playbackSpeed changes
+	$effect(() => {
+		if (youtubePlayer && youtubePlayerReady && playbackSpeed) {
+			youtubePlayer.setPlaybackRate(playbackSpeed);
+		}
+	});
+
+	// Effect to update Media Session when metadata changes
+	$effect(() => {
+		if (!loading && !error && title && channelName && !youtubeMode) {
+			updateMediaSession();
+		}
+	});
+
 	function setSponsorBlockEnabled(enabled: boolean) {
 		sponsorBlockEnabled = enabled;
 		if (typeof localStorage !== 'undefined') {
@@ -162,6 +253,7 @@
 		playbackSpeed = speed;
 		if (videoElement) {
 			videoElement.playbackRate = speed;
+			updateMediaSessionPosition();
 		}
 		if (typeof localStorage !== 'undefined') {
 			localStorage.setItem('playbackSpeed', speed.toString());
@@ -238,6 +330,8 @@
 		lastSkippedSegment = null;
 		showSkipNotice = false;
 		lastLoadedURL = '';
+		youtubeMode = false;
+		destroyYouTubePlayer();
 
 		try {
 			const data = await getVideoInfo(id);
@@ -359,13 +453,112 @@
 			videoElement.removeAttribute('src');
 			videoElement.load(); // Fully release the media resources
 		}
+		destroyYouTubePlayer();
 		if (unsubscribeProgress) {
 			unsubscribeProgress();
 		}
 		if (skipNoticeTimeout) {
 			clearTimeout(skipNoticeTimeout);
 		}
+
+		// Clear Media Session
+		if ('mediaSession' in navigator) {
+			navigator.mediaSession.metadata = null;
+			navigator.mediaSession.setActionHandler('play', null);
+			navigator.mediaSession.setActionHandler('pause', null);
+			navigator.mediaSession.setActionHandler('seekbackward', null);
+			navigator.mediaSession.setActionHandler('seekforward', null);
+			navigator.mediaSession.setActionHandler('seekto', null);
+			navigator.mediaSession.setActionHandler('nexttrack', null);
+			navigator.mediaSession.setActionHandler('previoustrack', null);
+		}
 	});
+
+	function updateMediaSession() {
+		if (!('mediaSession' in navigator)) return;
+
+		// Update metadata
+		navigator.mediaSession.metadata = new MediaMetadata({
+			title: title,
+			artist: channelName,
+			artwork: thumbnailURL ? [
+				{ src: thumbnailURL, sizes: '192x192', type: 'image/png' },
+				{ src: thumbnailURL, sizes: '512x512', type: 'image/png' }
+			] : []
+		});
+
+		// Set up action handlers
+		navigator.mediaSession.setActionHandler('play', () => {
+			if (videoElement) videoElement.play();
+		});
+
+		navigator.mediaSession.setActionHandler('pause', () => {
+			if (videoElement) videoElement.pause();
+		});
+
+		navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+			if (videoElement) {
+				const skipTime = details.seekOffset || 10;
+				videoElement.currentTime = Math.max(videoElement.currentTime - skipTime, 0);
+			}
+		});
+
+		navigator.mediaSession.setActionHandler('seekforward', (details) => {
+			if (videoElement) {
+				const skipTime = details.seekOffset || 10;
+				videoElement.currentTime = Math.min(videoElement.currentTime + skipTime, videoElement.duration);
+			}
+		});
+
+		navigator.mediaSession.setActionHandler('seekto', (details) => {
+			if (videoElement && details.seekTime !== null && details.seekTime !== undefined) {
+				videoElement.currentTime = details.seekTime;
+			}
+		});
+
+		// Handle next/previous if nearby videos exist
+		if (nearbyVideos.length > 0) {
+			const currentIndex = nearbyVideos.findIndex(v => v.id === videoId);
+
+			if (currentIndex < nearbyVideos.length - 1) {
+				navigator.mediaSession.setActionHandler('nexttrack', () => {
+					const nextVideo = nearbyVideos[currentIndex + 1];
+					if (nextVideo) {
+						window.location.href = `/watch/${nextVideo.id}`;
+					}
+				});
+			} else {
+				navigator.mediaSession.setActionHandler('nexttrack', null);
+			}
+
+			if (currentIndex > 0) {
+				navigator.mediaSession.setActionHandler('previoustrack', () => {
+					const prevVideo = nearbyVideos[currentIndex - 1];
+					if (prevVideo) {
+						window.location.href = `/watch/${prevVideo.id}`;
+					}
+				});
+			} else {
+				navigator.mediaSession.setActionHandler('previoustrack', null);
+			}
+		}
+	}
+
+	function updateMediaSessionPosition() {
+		if (!('mediaSession' in navigator) || !videoElement) return;
+
+		if ('setPositionState' in navigator.mediaSession) {
+			try {
+				navigator.mediaSession.setPositionState({
+					duration: videoElement.duration || 0,
+					playbackRate: videoElement.playbackRate,
+					position: videoElement.currentTime || 0
+				});
+			} catch (e) {
+				// Ignore errors from invalid position state
+			}
+		}
+	}
 
 	function handleVideoLoaded() {
 		if (videoElement) {
@@ -375,6 +568,10 @@
 				videoElement.currentTime = resumeFrom;
 				lastSavedTime = resumeFrom;
 			}
+
+			// Initialize Media Session API
+			updateMediaSession();
+			updateMediaSessionPosition();
 		}
 	}
 
@@ -399,6 +596,7 @@
 		saveProgress();
 		if (videoElement) {
 			checkForSegmentSkip(videoElement.currentTime);
+			updateMediaSessionPosition();
 		}
 	}
 
@@ -599,6 +797,12 @@
 							</a>
 						</div>
 					</div>
+				{:else if youtubeMode}
+					<!-- YouTube IFrame Player API container -->
+					<div
+						bind:this={youtubeContainerRef}
+						class="w-full h-full"
+					></div>
 				{:else}
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video
@@ -703,6 +907,19 @@
 								{segments.length} skip{segments.length !== 1 ? 's' : ''}
 							</span>
 						{/if}
+
+						<!-- YouTube Player Toggle -->
+						<button
+							onclick={() => youtubeMode = !youtubeMode}
+							class="youtube-mode-btn"
+							class:active={youtubeMode}
+							title={youtubeMode ? 'Use local player' : 'Use YouTube player (records to watch history)'}
+						>
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill={youtubeMode ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.5">
+								<path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"/>
+								<polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill={youtubeMode ? 'var(--bg-primary)' : 'currentColor'}/>
+							</svg>
+						</button>
 					</div>
 
 					<!-- Theater Mode Toggle (Desktop Only) -->
