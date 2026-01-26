@@ -142,6 +142,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/import/file", s.handleAPIImportFile)
 	mux.HandleFunc("POST /api/import/confirm", s.handleAPIConfirmOrganize)
 	mux.HandleFunc("POST /api/import/watch-history", s.handleAPIImportWatchHistory)
+	mux.HandleFunc("POST /api/import/youtube", s.handleAPIImportYouTube)
 
 	mux.HandleFunc("GET /api/packs", s.handlePacksList)
 	mux.HandleFunc("GET /api/packs/{name}", s.handlePackFile)

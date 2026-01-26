@@ -947,7 +947,96 @@ func (s *Server) handleAPIMarkUnwatched(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// isVideoURL checks if a URL is a YouTube video URL vs a channel URL
+func isVideoURL(url string) bool {
+	return strings.Contains(url, "/watch?v=") ||
+		strings.Contains(url, "youtu.be/") ||
+		strings.Contains(url, "/shorts/")
+}
+
 // Import endpoints
+
+func (s *Server) handleAPIImportYouTube(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL    string `json:"url"`
+		FeedID int64  `json:"feedId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate inputs
+	if strings.TrimSpace(req.URL) == "" {
+		jsonError(w, "URL is required", http.StatusBadRequest)
+		return
+	}
+	if req.FeedID == 0 {
+		jsonError(w, "feedId is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify feed exists
+	feed, err := s.db.GetFeed(req.FeedID)
+	if err != nil {
+		jsonError(w, "Feed not found", http.StatusBadRequest)
+		return
+	}
+
+	// Resolve to channel (detect video vs channel URL)
+	var channelInfo *yt.ChannelInfo
+	if isVideoURL(req.URL) {
+		channelInfo, err = yt.ResolveVideoToChannel(req.URL)
+		if err != nil {
+			jsonError(w, "Could not resolve channel from video URL: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else {
+		channelInfo, err = yt.ResolveChannelURL(req.URL)
+		if err != nil {
+			jsonError(w, "Could not resolve channel from URL: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Add channel to feed
+	channel, isNew, err := s.db.AddChannelToFeed(req.FeedID, channelInfo.URL, channelInfo.Name)
+	if err != nil {
+		jsonError(w, "Failed to add channel: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// If new channel, fetch initial videos
+	if isNew {
+		videos, err := yt.FetchLatestVideos(channel.URL, 5)
+		if err != nil {
+			log.Printf("Failed to fetch initial videos for channel %s: %v", channel.URL, err)
+		} else {
+			// Check shorts status
+			var videoIDs []string
+			for _, v := range videos {
+				videoIDs = append(videoIDs, v.ID)
+			}
+			shortsMap := yt.CheckShortsStatus(videoIDs)
+
+			// Upsert videos
+			for _, video := range videos {
+				isShort := shortsMap[video.ID]
+				video.IsShort = &isShort
+				if _, err := s.db.UpsertVideo(&video); err != nil {
+					log.Printf("Failed to upsert video %s: %v", video.ID, err)
+				}
+			}
+		}
+	}
+
+	// Return channel and feed info
+	w.WriteHeader(http.StatusCreated)
+	jsonResponse(w, map[string]any{
+		"channel": channel,
+		"feed":    feed,
+	})
+}
 
 func (s *Server) handleAPIImportURL(w http.ResponseWriter, r *http.Request) {
 	var req struct {
