@@ -219,53 +219,70 @@
 		}
 	});
 
-	// Track previous background state to detect transitions
-	let previousBackgroundState = $state(false);
-
 	// Effect to sync audio and video elements when backgrounding/foregrounding
 	$effect(() => {
 		if (loading || error || youtubeMode) return;
+		if (!videoElement || !audioElement || !lastLoadedURL) return;
 
-		// Only sync on actual state change
-		if (previousBackgroundState === isBackgrounded) return;
-		previousBackgroundState = isBackgrounded;
+		// When backgrounded: switch from video to audio
+		if (isBackgrounded) {
+			const currentTime = videoElement.currentTime;
+			const wasPlaying = !videoElement.paused;
 
-		const sourceElement = isBackgrounded ? videoElement : audioElement;
-		const targetElement = isBackgrounded ? audioElement : videoElement;
+			// Only sync if video has actually started
+			if (currentTime === 0 && videoElement.paused) return;
 
-		if (!sourceElement || !targetElement || !lastLoadedURL) return;
+			console.log('[Background] Switching to audio at', currentTime);
+			videoElement.pause();
 
-		// Get current state from the active (source) element
-		const currentTime = sourceElement.currentTime;
-		const wasPlaying = !sourceElement.paused;
-
-		// Don't sync if source hasn't started playing yet
-		if (currentTime === 0 && sourceElement.paused) return;
-
-		// Pause source
-		sourceElement.pause();
-
-		// Set target source if needed
-		if (!targetElement.src || targetElement.src !== sourceElement.src) {
-			targetElement.src = lastLoadedURL;
-			targetElement.load();
-		}
-
-		// Wait for target to be ready
-		const syncPlayback = () => {
-			targetElement.currentTime = currentTime;
-			targetElement.playbackRate = playbackSpeed;
-			if (wasPlaying) {
-				targetElement.play().catch(() => {});
+			// Ensure audio has source
+			if (!audioElement.src || audioElement.src !== videoElement.src) {
+				audioElement.src = lastLoadedURL;
+				audioElement.load();
 			}
-			updateMediaSession();
-			updateMediaSessionPosition();
-		};
 
-		if (targetElement.readyState >= 2) {
-			syncPlayback();
-		} else {
-			targetElement.addEventListener('loadedmetadata', syncPlayback, { once: true });
+			const syncAudio = () => {
+				audioElement.currentTime = currentTime;
+				audioElement.playbackRate = playbackSpeed;
+				if (wasPlaying) {
+					audioElement.play().catch(e => console.error('Audio play failed:', e));
+				}
+				updateMediaSession();
+				updateMediaSessionPosition();
+			};
+
+			if (audioElement.readyState >= 2) {
+				syncAudio();
+			} else {
+				audioElement.addEventListener('loadedmetadata', syncAudio, { once: true });
+			}
+		}
+		// When foregrounded: switch from audio to video
+		else {
+			const currentTime = audioElement.currentTime;
+			const wasPlaying = !audioElement.paused;
+
+			// Only sync if audio was actually playing
+			if (currentTime === 0 && audioElement.paused) return;
+
+			console.log('[Foreground] Switching to video at', currentTime);
+			audioElement.pause();
+
+			const syncVideo = () => {
+				videoElement.currentTime = currentTime;
+				videoElement.playbackRate = playbackSpeed;
+				if (wasPlaying) {
+					videoElement.play().catch(e => console.error('Video play failed:', e));
+				}
+				updateMediaSession();
+				updateMediaSessionPosition();
+			};
+
+			if (videoElement.readyState >= 2) {
+				syncVideo();
+			} else {
+				videoElement.addEventListener('loadedmetadata', syncVideo, { once: true });
+			}
 		}
 	});
 
