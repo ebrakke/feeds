@@ -580,8 +580,12 @@
 			}
 
 			// Initialize Media Session API
-			updateMediaSession();
-			updateMediaSessionPosition();
+			if ('mediaSession' in navigator) {
+				updateMediaSession();
+				updateMediaSessionPosition();
+				// Set initial playback state
+				navigator.mediaSession.playbackState = videoElement.paused ? 'paused' : 'playing';
+			}
 		}
 	}
 
