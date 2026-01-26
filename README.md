@@ -70,7 +70,7 @@ Piped is great for privacy-first proxying for many users. Grayjay is great as a 
 
 - **Feed management** — Create feeds like "Tech", "Music", "Politics", "Cooking"
 - **Channel organization** — Add channels to feeds, move them around, AI-assisted bulk organization
-- **Import subscriptions** — Import from NewPipe exports or add channels directly
+- **Import subscriptions** — Import from NewPipe exports, paste YouTube channel/video URLs, or add channels directly
 - **Watch history** — Track what you've watched with progress saved across devices
 - **Everything view** — See all recent videos across all feeds in one place
 - **Streaming & downloads** — Uses yt-dlp under the hood for reliable playback
