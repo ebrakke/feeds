@@ -8,6 +8,12 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	// YouTube IFrame Player API
+	interface Window {
+		YT: typeof YT;
+		onYouTubeIframeAPIReady?: () => void;
+	}
 }
 
 export {};
