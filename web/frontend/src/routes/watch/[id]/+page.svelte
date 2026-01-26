@@ -489,11 +489,17 @@
 
 		// Set up action handlers
 		navigator.mediaSession.setActionHandler('play', () => {
-			if (videoElement) videoElement.play();
+			if (videoElement) {
+				videoElement.play();
+				navigator.mediaSession.playbackState = 'playing';
+			}
 		});
 
 		navigator.mediaSession.setActionHandler('pause', () => {
-			if (videoElement) videoElement.pause();
+			if (videoElement) {
+				videoElement.pause();
+				navigator.mediaSession.playbackState = 'paused';
+			}
 		});
 
 		navigator.mediaSession.setActionHandler('seekbackward', (details) => {
@@ -811,11 +817,25 @@
 						controls
 						preload="auto"
 						playsinline
+						disablePictureInPicture={false}
 						poster={thumbnailURL || undefined}
 						onloadedmetadata={handleLoadedMetadata}
 						onloadeddata={handleVideoLoaded}
 						ontimeupdate={handleTimeUpdate}
-						onpause={handlePause}
+						onpause={() => {
+							handlePause();
+							if ('mediaSession' in navigator) {
+								navigator.mediaSession.playbackState = 'paused';
+							}
+						}}
+						onplay={() => {
+							// Ensure Media Session is updated on play
+							updateMediaSession();
+							updateMediaSessionPosition();
+							if ('mediaSession' in navigator) {
+								navigator.mediaSession.playbackState = 'playing';
+							}
+						}}
 					>
 						Your browser does not support the video tag.
 					</video>
