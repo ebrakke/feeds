@@ -125,6 +125,61 @@ func ResolveChannelURL(inputURL string) (*ChannelInfo, error) {
 	return nil, fmt.Errorf("could not find channel ID for URL: %s", inputURL)
 }
 
+// ResolveVideoToChannel extracts channel information from a YouTube video URL
+// Supports: /watch?v=ID, youtu.be/ID, /shorts/ID
+func ResolveVideoToChannel(videoURL string) (*ChannelInfo, error) {
+	// Normalize the URL
+	videoURL = strings.TrimSpace(videoURL)
+
+	// Extract video ID using existing regex
+	matches := videoIDRegex.FindStringSubmatch(videoURL)
+	if len(matches) < 2 {
+		return nil, fmt.Errorf("could not extract video ID from URL: %s", videoURL)
+	}
+	videoID := matches[1]
+
+	// Construct canonical watch URL
+	watchURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+
+	// Fetch video page
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	resp, err := client.Get(watchURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch video page: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("video page returned status %d", resp.StatusCode)
+	}
+
+	// Read body and look for channel ID
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	body := string(bodyBytes)
+
+	// Look for channel ID in the HTML
+	patterns := []string{
+		`"channelId":"([^"]+)"`,
+		`"externalChannelId":"([^"]+)"`,
+		`/channel/([^"/?]+)`,
+	}
+
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		if matches := re.FindStringSubmatch(body); len(matches) > 1 {
+			return fetchChannelInfoByID(matches[1])
+		}
+	}
+
+	return nil, fmt.Errorf("could not find channel ID for video: %s", videoURL)
+}
+
 // fetchChannelInfoByID fetches channel info from RSS feed
 func fetchChannelInfoByID(channelID string) (*ChannelInfo, error) {
 	rssURL := fmt.Sprintf("https://www.youtube.com/feeds/videos.xml?channel_id=%s", channelID)
