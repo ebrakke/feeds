@@ -186,6 +186,17 @@ export function fetchMoreChannelVideos(
 	});
 }
 
+// Import
+export async function importYouTubeChannel(url: string, feedId: number): Promise<{
+	channel: Channel;
+	feed: Feed;
+}> {
+	return fetchJSON('/import/youtube', {
+		method: 'POST',
+		body: JSON.stringify({ url, feedId })
+	});
+}
+
 // Videos
 export async function getRecentVideos(limit = 100, offset = 0): Promise<{
 	videos: Video[];
