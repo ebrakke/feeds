@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import FeedSelector from '$lib/components/FeedSelector.svelte';
 	import {
 		importFromURL,
 		importWatchHistory,
 		confirmOrganize,
-		getPacks
+		getPacks,
+		getFeeds,
+		importYouTubeChannel
 	} from '$lib/api';
-	import type { WatchHistoryChannel, GroupSuggestion } from '$lib/types';
+	import type { WatchHistoryChannel, GroupSuggestion, Feed } from '$lib/types';
 
 	type Step = 'upload' | 'preview' | 'organize' | 'confirm';
 
@@ -25,6 +28,13 @@
 	let watchGroups = $state<GroupSuggestion[]>([]);
 	let watchSelectedChannels = $state<Set<string>>(new Set());
 
+	// YouTube import
+	let showFeedSelector = $state(false);
+	let pendingYouTubeURL = $state('');
+	let allFeeds = $state<Feed[]>([]);
+	let youtubeImportLoading = $state(false);
+	let youtubeImportError = $state<string | null>(null);
+
 	// Subscription packs
 	let packs = $state<{ name: string; description: string; author: string; tags: string[] }[]>([]);
 
@@ -33,10 +43,37 @@
 		getPacks().then(p => packs = p).catch(() => {});
 	});
 
+	function isYouTubeURL(url: string): boolean {
+		const patterns = [
+			/youtube\.com\/watch\?v=/,
+			/youtu\.be\//,
+			/youtube\.com\/shorts\//,
+			/youtube\.com\/channel\//,
+			/youtube\.com\/@/,
+			/youtube\.com\/c\//,
+			/youtube\.com\/user\//
+		];
+		return patterns.some(pattern => pattern.test(url));
+	}
+
 	async function handleImportURL(e: Event) {
 		e.preventDefault();
 		if (!importURL.trim()) return;
 
+		// Check if it's a YouTube URL
+		if (isYouTubeURL(importURL)) {
+			pendingYouTubeURL = importURL;
+			youtubeImportError = null;
+			try {
+				allFeeds = await getFeeds();
+				showFeedSelector = true;
+			} catch (e) {
+				importError = e instanceof Error ? e.message : 'Failed to load feeds';
+			}
+			return;
+		}
+
+		// Existing JSON import flow
 		importLoading = true;
 		importError = null;
 		try {
@@ -47,6 +84,27 @@
 		} finally {
 			importLoading = false;
 		}
+	}
+
+	async function handleYouTubeImportConfirm(feedId: number) {
+		youtubeImportLoading = true;
+		youtubeImportError = null;
+
+		try {
+			const result = await importYouTubeChannel(pendingYouTubeURL, feedId);
+			showFeedSelector = false;
+			importURL = '';
+			goto(`/feeds/${result.feed.id}`);
+		} catch (e) {
+			youtubeImportError = e instanceof Error ? e.message : 'Failed to add channel';
+		} finally {
+			youtubeImportLoading = false;
+		}
+	}
+
+	function handleYouTubeImportCancel() {
+		showFeedSelector = false;
+		youtubeImportError = null;
 	}
 
 	function handleWatchFileChange(e: Event) {
@@ -242,7 +300,7 @@
 			<input
 				type="url"
 				bind:value={importURL}
-				placeholder="https://youtube.com/channel/... or video URL"
+				placeholder="YouTube channel or video URL, or feed export link"
 				class="flex-1 bg-void border border-white/10 rounded-lg px-4 py-3 text-text-primary placeholder-text-dim focus:outline-none focus:border-emerald-500/50 transition-colors"
 			/>
 			<button
@@ -583,3 +641,14 @@
 		</section>
 	{/if}
 </div>
+
+<!-- Feed Selector Modal -->
+{#if showFeedSelector}
+	<FeedSelector
+		feeds={allFeeds}
+		onSelect={handleYouTubeImportConfirm}
+		onCancel={handleYouTubeImportCancel}
+		loading={youtubeImportLoading}
+		error={youtubeImportError}
+	/>
+{/if}
