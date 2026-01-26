@@ -219,20 +219,28 @@
 		}
 	});
 
+	// Track previous background state to detect transitions
+	let previousBackgroundState = $state(false);
+
 	// Effect to sync audio and video elements when backgrounding/foregrounding
 	$effect(() => {
 		if (loading || error || youtubeMode) return;
 
+		// Only sync on actual state change
+		if (previousBackgroundState === isBackgrounded) return;
+		previousBackgroundState = isBackgrounded;
+
 		const sourceElement = isBackgrounded ? videoElement : audioElement;
 		const targetElement = isBackgrounded ? audioElement : videoElement;
 
-		// Only sync if transitioning (source has content but target doesn't)
 		if (!sourceElement || !targetElement || !lastLoadedURL) return;
-		if (sourceElement.paused && sourceElement.currentTime === 0) return; // Nothing to sync
 
-		// Sync state from source to target
+		// Get current state from the active (source) element
 		const currentTime = sourceElement.currentTime;
 		const wasPlaying = !sourceElement.paused;
+
+		// Don't sync if source hasn't started playing yet
+		if (currentTime === 0 && sourceElement.paused) return;
 
 		// Pause source
 		sourceElement.pause();
@@ -455,6 +463,12 @@
 
 		video.src = newURL;
 		video.load();
+
+		// Also load audio element with same source for background playback
+		if (audioElement) {
+			audioElement.src = newURL;
+			audioElement.load();
+		}
 
 		// Restore position after load
 		video.addEventListener('loadedmetadata', () => {
