@@ -56,9 +56,6 @@
 	// Theater mode - persisted in localStorage
 	let theaterMode = $state(false);
 
-	// Background audio mode - automatically enabled when app is backgrounded
-	let isBackgrounded = $state(false);
-	let audioElement = $state<HTMLAudioElement | null>(null);
 
 	// YouTube player mode - watch in YouTube iframe to record to YouTube history
 	let youtubeMode = $state(false);
@@ -219,72 +216,6 @@
 		}
 	});
 
-	// Function to handle background/foreground transitions
-	function handleVisibilityTransition(isNowBackgrounded: boolean) {
-		if (loading || error || youtubeMode) return;
-		if (!videoElement || !audioElement || !lastLoadedURL) return;
-
-		// When backgrounded: switch from video to audio
-		if (isNowBackgrounded) {
-			const currentTime = videoElement.currentTime;
-			const wasPlaying = !videoElement.paused;
-
-			// Only sync if video has actually started
-			if (currentTime === 0 && videoElement.paused) return;
-
-			console.log('[Background] Switching to audio at', currentTime);
-			videoElement.pause();
-
-			// Ensure audio has source
-			if (!audioElement.src || audioElement.src !== videoElement.src) {
-				audioElement.src = lastLoadedURL;
-				audioElement.load();
-			}
-
-			const syncAudio = () => {
-				audioElement.currentTime = currentTime;
-				audioElement.playbackRate = playbackSpeed;
-				if (wasPlaying) {
-					audioElement.play().catch(e => console.error('Audio play failed:', e));
-				}
-				updateMediaSession();
-				updateMediaSessionPosition();
-			};
-
-			if (audioElement.readyState >= 2) {
-				syncAudio();
-			} else {
-				audioElement.addEventListener('loadedmetadata', syncAudio, { once: true });
-			}
-		}
-		// When foregrounded: switch from audio to video
-		else {
-			const currentTime = audioElement.currentTime;
-			const wasPlaying = !audioElement.paused;
-
-			// Only sync if audio was actually playing
-			if (currentTime === 0 && audioElement.paused) return;
-
-			console.log('[Foreground] Switching to video at', currentTime);
-			audioElement.pause();
-
-			const syncVideo = () => {
-				videoElement.currentTime = currentTime;
-				videoElement.playbackRate = playbackSpeed;
-				if (wasPlaying) {
-					videoElement.play().catch(e => console.error('Video play failed:', e));
-				}
-				updateMediaSession();
-				updateMediaSessionPosition();
-			};
-
-			if (videoElement.readyState >= 2) {
-				syncVideo();
-			} else {
-				videoElement.addEventListener('loadedmetadata', syncVideo, { once: true });
-			}
-		}
-	}
 
 	function setSponsorBlockEnabled(enabled: boolean) {
 		sponsorBlockEnabled = enabled;
@@ -481,12 +412,6 @@
 		video.src = newURL;
 		video.load();
 
-		// Also load audio element with same source for background playback
-		if (audioElement) {
-			audioElement.src = newURL;
-			audioElement.load();
-		}
-
 		// Restore position after load
 		video.addEventListener('loadedmetadata', () => {
 			if (currentTime > 0) {
@@ -522,24 +447,6 @@
 			console.warn('Failed to load feeds:', e);
 		}
 
-		// Handle visibility changes for background audio
-		const handleVisibilityChange = () => {
-			const wasBackgrounded = isBackgrounded;
-			const nowBackgrounded = document.hidden;
-
-			// Only trigger transition if state actually changed
-			if (wasBackgrounded !== nowBackgrounded) {
-				isBackgrounded = nowBackgrounded;
-				// Use setTimeout to ensure state update completes first
-				setTimeout(() => handleVisibilityTransition(nowBackgrounded), 0);
-			}
-		};
-
-		document.addEventListener('visibilitychange', handleVisibilityChange);
-
-		return () => {
-			document.removeEventListener('visibilitychange', handleVisibilityChange);
-		};
 	});
 
 	onDestroy(() => {
@@ -570,9 +477,6 @@
 		}
 	});
 
-	function getActiveMediaElement() {
-		return isBackgrounded ? audioElement : videoElement;
-	}
 
 	function updateMediaSession() {
 		if (!('mediaSession' in navigator)) return;
@@ -589,41 +493,36 @@
 
 		// Set up action handlers
 		navigator.mediaSession.setActionHandler('play', () => {
-			const media = getActiveMediaElement();
-			if (media) {
-				media.play();
+			if (videoElement) {
+				videoElement.play();
 				navigator.mediaSession.playbackState = 'playing';
 			}
 		});
 
 		navigator.mediaSession.setActionHandler('pause', () => {
-			const media = getActiveMediaElement();
-			if (media) {
-				media.pause();
+			if (videoElement) {
+				videoElement.pause();
 				navigator.mediaSession.playbackState = 'paused';
 			}
 		});
 
 		navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-			const media = getActiveMediaElement();
-			if (media) {
+			if (videoElement) {
 				const skipTime = details.seekOffset || 10;
-				media.currentTime = Math.max(media.currentTime - skipTime, 0);
+				videoElement.currentTime = Math.max(videoElement.currentTime - skipTime, 0);
 			}
 		});
 
 		navigator.mediaSession.setActionHandler('seekforward', (details) => {
-			const media = getActiveMediaElement();
-			if (media) {
+			if (videoElement) {
 				const skipTime = details.seekOffset || 10;
-				media.currentTime = Math.min(media.currentTime + skipTime, media.duration);
+				videoElement.currentTime = Math.min(videoElement.currentTime + skipTime, videoElement.duration);
 			}
 		});
 
 		navigator.mediaSession.setActionHandler('seekto', (details) => {
-			const media = getActiveMediaElement();
-			if (media && details.seekTime !== null && details.seekTime !== undefined) {
-				media.currentTime = details.seekTime;
+			if (videoElement && details.seekTime !== null && details.seekTime !== undefined) {
+				videoElement.currentTime = details.seekTime;
 			}
 		});
 
@@ -656,15 +555,14 @@
 	}
 
 	function updateMediaSessionPosition() {
-		const media = getActiveMediaElement();
-		if (!('mediaSession' in navigator) || !media) return;
+		if (!('mediaSession' in navigator) || !videoElement) return;
 
 		if ('setPositionState' in navigator.mediaSession) {
 			try {
 				navigator.mediaSession.setPositionState({
-					duration: media.duration || 0,
-					playbackRate: media.playbackRate,
-					position: media.currentTime || 0
+					duration: videoElement.duration || 0,
+					playbackRate: videoElement.playbackRate,
+					position: videoElement.currentTime || 0
 				});
 			} catch (e) {
 				// Ignore errors from invalid position state
@@ -945,31 +843,6 @@
 					>
 						Your browser does not support the video tag.
 					</video>
-
-					<!-- Hidden audio element for background playback -->
-					<!-- svelte-ignore a11y_media_has_caption -->
-					<audio
-						bind:this={audioElement}
-						preload="auto"
-						style="display: none;"
-						ontimeupdate={() => {
-							if (isBackgrounded && audioElement) {
-								updateMediaSessionPosition();
-							}
-						}}
-						onplay={() => {
-							if (isBackgrounded && 'mediaSession' in navigator) {
-								navigator.mediaSession.playbackState = 'playing';
-							}
-						}}
-						onpause={() => {
-							if (isBackgrounded && 'mediaSession' in navigator) {
-								navigator.mediaSession.playbackState = 'paused';
-							}
-						}}
-					>
-						Your browser does not support the audio tag.
-					</audio>
 
 					<!-- Download Progress Overlay -->
 					{#if downloadingQuality}
