@@ -234,27 +234,51 @@ def play_video(video_id: str):
         # Check if already cached
         is_cached = any(str(c) == str(selected_quality) for c in cached)
         if not is_cached:
-            # Need to download first
+            # Need to download - start it and wait for buffering
             pDialog = xbmcgui.DialogProgress()
-            pDialog.create("Preparing Video", "Starting download...")
+            pDialog.create("Buffering Video", "Starting download...")
 
             api.start_download(video_id, selected_quality)
 
-            # Poll for completion
+            # Poll for buffering (not completion)
+            # Backend will buffer ~10 seconds of video before allowing playback
             import time
-            for i in range(120):  # Max 2 minutes
+            buffered = False
+            for i in range(60):  # Max 1 minute for buffering
                 if pDialog.iscanceled():
                     return
-                pDialog.update(int(i * 100 / 120), f"Downloading {selected_quality}...")
-                time.sleep(1)
 
-                # Check if now cached
+                # Check download status
                 new_qualities = api.get_video_qualities(video_id)
                 new_cached = new_qualities.get("cached") or []
+                downloading = new_qualities.get("downloading")  # Single value or None
+
+                # If cached, we're good to go
                 if any(str(c) == str(selected_quality) for c in new_cached):
+                    buffered = True
                     break
 
+                # If downloading, show progress and assume buffered after a few seconds
+                # The backend has buffer thresholds (1-20MB depending on quality)
+                # which ensure ~10 seconds of video is available
+                if downloading and str(downloading) == str(selected_quality):
+                    if i >= 5:  # Wait at least 5 seconds for initial buffering
+                        buffered = True
+                        pDialog.update(100, "Buffered - starting playback...")
+                        time.sleep(0.5)  # Brief pause to show message
+                        break
+                    else:
+                        pDialog.update(int(i * 100 / 5), "Buffering...")
+                else:
+                    pDialog.update(int(i * 100 / 60), f"Starting download...")
+
+                time.sleep(1)
+
             pDialog.close()
+
+            if not buffered:
+                xbmcgui.Dialog().ok("Feeds", "Buffering timeout. Video may not be available.")
+                return
 
         # Get SponsorBlock segments if enabled
         segments = []
