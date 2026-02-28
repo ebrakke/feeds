@@ -1,4 +1,4 @@
-import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion, ChannelMembership, SponsorBlockSegment } from './types';
+import type { Feed, Channel, Video, WatchProgress, Config, WatchHistoryChannel, GroupSuggestion, ChannelMembership, SponsorBlockSegment, SmartFeed } from './types';
 
 const API_BASE = '/api';
 
@@ -86,6 +86,23 @@ export async function getShuffledVideos(id: number, limit = 100, offset = 0): Pr
 	limit: number;
 }> {
 	return fetchJSON(`/feeds/${id}/shuffle?limit=${limit}&offset=${offset}`);
+}
+
+// Smart Feeds
+export async function getSmartFeeds(): Promise<{ feeds: SmartFeed[] }> {
+	return fetchJSON('/smart-feeds');
+}
+
+export async function getSmartFeed(slug: string, limit = 50, offset = 0): Promise<{
+	slug: string;
+	name: string;
+	videos: Video[];
+	progressMap: Record<string, WatchProgress>;
+	total: number;
+	offset: number;
+	limit: number;
+}> {
+	return fetchJSON(`/smart-feeds/${slug}?limit=${limit}&offset=${offset}`);
 }
 
 // Channels

@@ -151,6 +151,9 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/config/ytdlp-cookies", s.handleAPISetYTDLPCookies)
 
 	mux.HandleFunc("GET /api/search", s.handleAPISearch)
+
+	mux.HandleFunc("GET /api/smart-feeds", s.handleAPIGetSmartFeeds)
+	mux.HandleFunc("GET /api/smart-feeds/{slug}", s.handleAPIGetSmartFeed)
 }
 
 // Page handlers
@@ -1839,4 +1842,98 @@ func (s *Server) handleGetQualities(w http.ResponseWriter, r *http.Request) {
 		"cached":      cached,
 		"downloading": downloading,
 	})
+}
+
+// handleAPIGetSmartFeeds returns metadata for all smart feeds
+func (s *Server) handleAPIGetSmartFeeds(w http.ResponseWriter, r *http.Request) {
+	continueWatching, hotThisWeek, err := s.db.GetSmartFeedCounts()
+	if err != nil {
+		log.Printf("Failed to get smart feed counts: %v", err)
+		// Return zeros on error rather than failing
+		continueWatching, hotThisWeek = 0, 0
+	}
+
+	feeds := []map[string]any{
+		{
+			"slug":       "hot-this-week",
+			"name":       "Hot This Week",
+			"icon":       "flame",
+			"videoCount": hotThisWeek,
+		},
+		{
+			"slug":       "continue-watching",
+			"name":       "Continue Watching",
+			"icon":       "play",
+			"videoCount": continueWatching,
+		},
+	}
+
+	jsonResponse(w, map[string]any{"feeds": feeds})
+}
+
+// handleAPIGetSmartFeed returns videos for a specific smart feed
+func (s *Server) handleAPIGetSmartFeed(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	offsetStr := r.URL.Query().Get("offset")
+	offset := 0
+	if offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	switch slug {
+	case "continue-watching":
+		videos, progressMap, total, err := s.db.GetContinueWatching(limit, offset)
+		if err != nil {
+			log.Printf("Failed to get continue watching: %v", err)
+			http.Error(w, "Failed to load videos", http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"slug":        slug,
+			"name":        "Continue Watching",
+			"videos":      videos,
+			"progressMap": progressMap,
+			"total":       total,
+			"offset":      offset,
+			"limit":       limit,
+		})
+
+	case "hot-this-week":
+		videos, total, err := s.db.GetHotThisWeek(limit, offset)
+		if err != nil {
+			log.Printf("Failed to get hot this week: %v", err)
+			http.Error(w, "Failed to load videos", http.StatusInternalServerError)
+			return
+		}
+		// Get watch progress for videos
+		videoIDs := make([]string, len(videos))
+		for i, v := range videos {
+			videoIDs[i] = v.ID
+		}
+		progressMap, _ := s.db.GetWatchProgressMap(videoIDs)
+
+		jsonResponse(w, map[string]any{
+			"slug":        slug,
+			"name":        "Hot This Week",
+			"videos":      videos,
+			"progressMap": progressMap,
+			"total":       total,
+			"offset":      offset,
+			"limit":       limit,
+		})
+
+	default:
+		http.Error(w, "Unknown smart feed", http.StatusNotFound)
+	}
 }

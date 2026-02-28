@@ -65,3 +65,10 @@ export interface SponsorBlockSegment {
 	actionType: string;
 	votes: number;
 }
+
+export interface SmartFeed {
+	slug: string;
+	name: string;
+	icon: string;
+	videoCount: number;
+}
